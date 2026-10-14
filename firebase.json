@@ -1,5 +1,5 @@
 {
-  "hosting": {
+  "hosting": {"site": "chung-family-washington-trip-2026",
     "public": "dist",
     "ignore": [
       "firebase.json",
