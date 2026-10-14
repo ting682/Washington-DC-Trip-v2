@@ -6,9 +6,14 @@ import {
   spyMissions,
   TRIVIA_QUESTIONS,
 } from '../data/tripData';
+import { PandaFeastFrenzy } from './KidsGames/PandaFeastFrenzy';
+import { PandaZooDash } from './KidsGames/PandaZooDash';
+import { PandaBambooBounce } from './KidsGames/PandaBambooBounce';
+import { PandaBubbleSlinger } from './KidsGames/PandaBubbleSlinger';
 
 export const KidsView: React.FC = () => {
   const [activeGame, setActiveGame] = useState<'panda' | 'spy' | 'trivia' | 'hunt'>('panda');
+  const [pandaChoice, setPandaChoice] = useState<'frenzy' | 'dash' | 'bounce' | 'bubble' | 'classic'>('frenzy');
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -67,7 +72,73 @@ export const KidsView: React.FC = () => {
       </div>
 
       {/* Mini Games */}
-      {activeGame === 'panda' && <PandaGame />}
+      {activeGame === 'panda' && (
+        <div className="space-y-4">
+          {/* Panda Choice Showcase Banner */}
+          <div className="bg-emerald-950/5 border border-emerald-500/20 rounded-3xl p-4 sm:p-5 text-center">
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-2">
+              <span className="text-2xl">🐼</span>
+              <h3 className="font-black text-sm sm:text-base text-emerald-950">Panda Games Play-Test Arena</h3>
+              <span className="text-[10px] bg-emerald-600 text-white font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                Review &amp; Feedback Mode
+              </span>
+            </div>
+            <p className="text-xs text-emerald-800 max-w-xl mx-auto mb-3.5 leading-relaxed">
+              Test all 4 brand-new game styles below with <strong>Easy, Medium, and Hard</strong> modes &amp; <strong>Family Leaderboards</strong>!
+            </p>
+
+            {/* Sub Tabs */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-w-2xl mx-auto text-xs font-black">
+              <button
+                onClick={() => setPandaChoice('frenzy')}
+                className={`py-2.5 px-3 rounded-2xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs ${
+                  pandaChoice === 'frenzy'
+                    ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
+                    : 'bg-white text-slate-700 hover:bg-emerald-50 border border-slate-200'
+                }`}
+              >
+                <span>🍱 1. Feast Frenzy</span>
+              </button>
+              <button
+                onClick={() => setPandaChoice('dash')}
+                className={`py-2.5 px-3 rounded-2xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs ${
+                  pandaChoice === 'dash'
+                    ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
+                    : 'bg-white text-slate-700 hover:bg-emerald-50 border border-slate-200'
+                }`}
+              >
+                <span>🏃 2. Zoo Dash</span>
+              </button>
+              <button
+                onClick={() => setPandaChoice('bounce')}
+                className={`py-2.5 px-3 rounded-2xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs ${
+                  pandaChoice === 'bounce'
+                    ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
+                    : 'bg-white text-slate-700 hover:bg-emerald-50 border border-slate-200'
+                }`}
+              >
+                <span>🎋 3. Bamboo Bounce</span>
+              </button>
+              <button
+                onClick={() => setPandaChoice('bubble')}
+                className={`py-2.5 px-3 rounded-2xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs ${
+                  pandaChoice === 'bubble'
+                    ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400 scale-[1.02]'
+                    : 'bg-white text-slate-700 hover:bg-emerald-50 border border-slate-200'
+                }`}
+              >
+                <span>🧩 4. Bubble Slinger</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Active Game Choice Render */}
+          {pandaChoice === 'frenzy' && <PandaFeastFrenzy />}
+          {pandaChoice === 'dash' && <PandaZooDash />}
+          {pandaChoice === 'bounce' && <PandaBambooBounce />}
+          {pandaChoice === 'bubble' && <PandaBubbleSlinger />}
+        </div>
+      )}
       {activeGame === 'spy' && <SpyGame />}
       {activeGame === 'trivia' && <TriviaGame />}
       {activeGame === 'hunt' && <ScavengerHuntGame />}
@@ -92,13 +163,16 @@ const PandaGame: React.FC = () => {
   const [gameOver, setGameOver] = useState(false);
   const [overlayTitle, setOverlayTitle] = useState('Panda Bamboo Catcher');
   const [overlaySubtitle, setOverlaySubtitle] = useState('Catch bamboo for the National Zoo pandas!');
+  const [difficulty, setDifficulty] = useState<'easy' | 'challenge'>('easy');
 
   // Game state refs for animation loop
-  const basketRef = useRef({ x: 170, y: 275, width: 65, height: 26 });
-  const itemsRef = useRef<{ x: number; y: number; speed: number; icon: string }[]>([]);
-  const livesRef = useRef(3);
+  // Wider basket (95px) for easy mode, 70px for challenge
+  const basketRef = useRef({ x: 152, y: 272, width: 96, height: 28 });
+  const itemsRef = useRef<{ x: number; y: number; speed: number; icon: string; isHeart?: boolean }[]>([]);
+  const livesRef = useRef(5);
   const scoreRef = useRef(0);
   const animIdRef = useRef<number | null>(null);
+  const lastSpawnRef = useRef(0);
 
   const drawScene = (ctx: CanvasRenderingContext2D) => {
     ctx.clearRect(0, 0, 400, 320);
@@ -110,13 +184,15 @@ const PandaGame: React.FC = () => {
     // Basket
     const b = basketRef.current;
     ctx.fillStyle = '#1e293b';
-    ctx.fillRect(b.x, b.y, b.width, b.height);
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(b.x, b.y, b.width, b.height, 8) : ctx.rect(b.x, b.y, b.width, b.height);
+    ctx.fill();
 
     ctx.fillStyle = '#10b981';
     ctx.fillRect(b.x, b.y - 3, b.width, 4);
 
     ctx.font = '22px sans-serif';
-    ctx.fillText('🐼', b.x + 20, b.y + 21);
+    ctx.fillText('🐼', b.x + (b.width / 2) - 13, b.y + 22);
   };
 
   const stopGame = () => {
@@ -133,8 +209,8 @@ const PandaGame: React.FC = () => {
     setOverlayTitle(`Game Over! Score: ${finalScore}`);
     setOverlaySubtitle(
       finalScore >= 100
-        ? 'Awesome job! Bao Li & Qing Bao are full!'
-        : 'Great try! Play again to beat your record!'
+        ? 'Amazing job! Bao Li & Qing Bao are super full and happy!'
+        : 'Great effort! Play again to beat your record!'
     );
   };
 
@@ -146,13 +222,26 @@ const PandaGame: React.FC = () => {
 
     drawScene(ctx);
 
-    // Random spawn
-    if (Math.random() < 0.04) {
+    const isEasy = difficulty === 'easy';
+    const now = Date.now();
+    const spawnDelay = isEasy ? 1100 : 750;
+
+    // Gentle controlled spawn
+    if (now - lastSpawnRef.current > spawnDelay && Math.random() < 0.04) {
+      lastSpawnRef.current = now;
+      const needHeart = livesRef.current < (isEasy ? 5 : 3);
+      const isHeart = needHeart && Math.random() < 0.15; // 15% chance to drop bonus heart!
+
+      // Speed is much slower in easy mode: 1.2 to 2.2 max
+      const baseSpeed = isEasy ? 1.2 : 2.0;
+      const speedGrowth = isEasy ? Math.min(scoreRef.current * 0.008, 1.0) : Math.min(scoreRef.current * 0.03, 2.5);
+
       itemsRef.current.push({
-        x: Math.random() * 340 + 20,
+        x: Math.random() * 320 + 20,
         y: -20,
-        speed: 2.2 + Math.min(scoreRef.current * 0.08, 4.5),
-        icon: Math.random() > 0.35 ? '🎋' : Math.random() > 0.5 ? '🍎' : '🎍',
+        speed: baseSpeed + speedGrowth,
+        icon: isHeart ? '💖' : Math.random() > 0.3 ? '🎋' : Math.random() > 0.5 ? '🍎' : '⭐',
+        isHeart,
       });
     }
 
@@ -161,17 +250,25 @@ const PandaGame: React.FC = () => {
       const item = itemsRef.current[i];
       item.y += item.speed;
 
-      ctx.font = '22px sans-serif';
+      ctx.font = '24px sans-serif';
       ctx.fillText(item.icon, item.x, item.y);
 
-      // Collision
+      // Generous Collision Box
+      const hitMargin = isEasy ? 16 : 8;
       if (
-        item.y >= b.y - 10 &&
-        item.y <= b.y + b.height + 5 &&
-        item.x + 15 >= b.x &&
-        item.x <= b.x + b.width
+        item.y >= b.y - 14 &&
+        item.y <= b.y + b.height + 12 &&
+        item.x + 22 >= b.x - hitMargin &&
+        item.x <= b.x + b.width + hitMargin
       ) {
-        scoreRef.current += 10;
+        if (item.isHeart) {
+          const maxLives = isEasy ? 5 : 3;
+          livesRef.current = Math.min(maxLives, livesRef.current + 1);
+        } else if (item.icon === '⭐') {
+          scoreRef.current += 25;
+        } else {
+          scoreRef.current += 10;
+        }
         setScore(scoreRef.current);
         itemsRef.current.splice(i, 1);
         continue;
@@ -179,11 +276,15 @@ const PandaGame: React.FC = () => {
 
       // Missed item
       if (item.y > 325) {
+        const wasHeart = item.isHeart;
         itemsRef.current.splice(i, 1);
-        livesRef.current--;
-        if (livesRef.current <= 0) {
-          stopGame();
-          return;
+        // Missing a bonus heart doesn't count against lives
+        if (!wasHeart) {
+          livesRef.current--;
+          if (livesRef.current <= 0) {
+            stopGame();
+            return;
+          }
         }
       }
     }
@@ -198,9 +299,13 @@ const PandaGame: React.FC = () => {
   };
 
   const startGame = () => {
+    const isEasy = difficulty === 'easy';
+    basketRef.current.width = isEasy ? 96 : 70;
+    basketRef.current.x = Math.max(5, Math.min(400 - basketRef.current.width - 5, basketRef.current.x));
     scoreRef.current = 0;
-    livesRef.current = 3;
+    livesRef.current = isEasy ? 5 : 3;
     itemsRef.current = [];
+    lastSpawnRef.current = Date.now();
     setScore(0);
     setGameOver(false);
     setGameRunning(true);
@@ -209,7 +314,8 @@ const PandaGame: React.FC = () => {
   };
 
   const moveBasket = (delta: number) => {
-    basketRef.current.x = Math.max(5, Math.min(330, basketRef.current.x + delta));
+    const maxBound = 400 - basketRef.current.width - 5;
+    basketRef.current.x = Math.max(5, Math.min(maxBound, basketRef.current.x + delta));
     const canvas = canvasRef.current;
     if (canvas && !gameRunning) {
       const ctx = canvas.getContext('2d');
@@ -224,8 +330,8 @@ const PandaGame: React.FC = () => {
       if (ctx) drawScene(ctx);
     }
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') moveBasket(-35);
-      if (e.key === 'ArrowRight') moveBasket(35);
+      if (e.key === 'ArrowLeft') moveBasket(-45);
+      if (e.key === 'ArrowRight') moveBasket(45);
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
@@ -240,15 +346,54 @@ const PandaGame: React.FC = () => {
     const rect = canvas.getBoundingClientRect();
     const scaleX = 400 / rect.width;
     const touchX = (clientX - rect.left) * scaleX;
-    basketRef.current.x = Math.max(5, Math.min(330, touchX - basketRef.current.width / 2));
+    const maxBound = 400 - basketRef.current.width - 5;
+    basketRef.current.x = Math.max(5, Math.min(maxBound, touchX - basketRef.current.width / 2));
   };
 
   return (
     <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm text-center">
-      <div className="flex items-center justify-between mb-3 text-xs">
-        <span className="font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
-          🐾 Feed Bao Li &amp; Qing Bao
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
+            🐾 Feed Bao Li &amp; Qing Bao
+          </span>
+          {/* Difficulty Mode Toggle */}
+          <div className="flex items-center bg-slate-100 rounded-full p-0.5 border border-slate-200 text-[11px]">
+            <button
+              onClick={() => {
+                if (!gameRunning) {
+                  setDifficulty('easy');
+                  basketRef.current.width = 96;
+                }
+              }}
+              disabled={gameRunning}
+              className={`px-2.5 py-0.5 rounded-full font-bold transition cursor-pointer ${
+                difficulty === 'easy'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Easy (Kids)
+            </button>
+            <button
+              onClick={() => {
+                if (!gameRunning) {
+                  setDifficulty('challenge');
+                  basketRef.current.width = 70;
+                }
+              }}
+              disabled={gameRunning}
+              className={`px-2.5 py-0.5 rounded-full font-bold transition cursor-pointer ${
+                difficulty === 'challenge'
+                  ? 'bg-slate-800 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Classic
+            </button>
+          </div>
+        </div>
+
         <div className="flex items-center gap-3">
           <span className="font-bold text-slate-500">
             Score: <strong className="text-emerald-600 text-sm font-mono">{score}</strong>
@@ -260,8 +405,7 @@ const PandaGame: React.FC = () => {
       </div>
 
       <p className="text-xs text-slate-500 mb-3">
-        Slide the basket with your finger or mouse (or use the arrow buttons below) to catch bamboo
-        and apples! Don&apos;t let 3 treats drop!
+        Slide the panda with your finger or mouse (or use the arrow buttons below) to catch bamboo 🎋, apples 🍎, and stars ⭐! Catch floating hearts 💖 to restore extra lives!
       </p>
 
       {/* GAME CANVAS WRAPPER */}
@@ -303,15 +447,17 @@ const PandaGame: React.FC = () => {
       {/* ON-SCREEN PHONE CONTROLS */}
       <div className="mt-4 flex items-center justify-center gap-4">
         <button
-          onClick={() => moveBasket(-45)}
-          className="w-14 h-12 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-2xl flex items-center justify-center shadow-xs active:scale-90 transition text-lg cursor-pointer"
+          onClick={() => moveBasket(-55)}
+          className="w-16 h-12 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-2xl flex items-center justify-center shadow-xs active:scale-90 transition text-lg cursor-pointer"
+          aria-label="Move left"
         >
           <i className="fa-solid fa-arrow-left"></i>
         </button>
-        <span className="text-xs text-slate-400 font-semibold">Tap arrows or drag basket</span>
+        <span className="text-xs text-slate-400 font-semibold">Tap arrows or drag panda</span>
         <button
-          onClick={() => moveBasket(45)}
-          className="w-14 h-12 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-2xl flex items-center justify-center shadow-xs active:scale-90 transition text-lg cursor-pointer"
+          onClick={() => moveBasket(55)}
+          className="w-16 h-12 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-2xl flex items-center justify-center shadow-xs active:scale-90 transition text-lg cursor-pointer"
+          aria-label="Move right"
         >
           <i className="fa-solid fa-arrow-right"></i>
         </button>
