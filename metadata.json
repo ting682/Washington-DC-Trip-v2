@@ -1,0 +1,8 @@
+{
+  "name": "DC Family Trip 2026",
+  "description": "Live trip companion for the Washington, DC family vacation featuring interactive schedule, live gates, packing lists, transit routing, and kids games.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

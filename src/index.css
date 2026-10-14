@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --navy: #1D3F8F;
+    --navy-2: #2A52AE;
+    --hero: #D3E2FF;
+    --hero-2: #C2D6FF;
+    --on-hero: #142F6B;
+    --on-hero-2: #34508C;
+    --marble: #F7FAFF;
+    --marble-2: #EEF4FF;
+    --stone: #CCDAF3;
+    --ink-2: #2D3F66;
+    --ink-3: #4A5C82;
+    --red: #C8202F;
+    --red-soft: #FDE6E8;
+    --red-line: #F4BEC3;
+    --navy-soft: #E6EEFD;
+    --mist: #BFD3F7;
+    --photo: #D7E2F5;
+    --rule: #E5484D;
+    --band1: #F7A8AE;
+    --band2: #FFE08A;
+    --band3: #A9C7FF;
+  }
+
+  body {
+    -webkit-tap-highlight-color: transparent;
+    background-color: var(--marble) !important;
+    color: var(--navy);
+    font-family: 'Figtree', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@media (hover: none) and (pointer: coarse), (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes bounce-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.animate-bounce-slow {
+  animation: bounce-slow 2.2s infinite ease-in-out;
+}
+
+.serif, header h1, .serif-heading {
+  font-family: 'Young Serif', Georgia, serif !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+}
+
+.leg-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 4px 6px 0;
+  color: var(--ink-3);
+}
+.leg-row .leg-title {
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.leg-row .leg-meta {
+  font-size: 13px;
+}
+.leg-row .leg-note {
+  font-size: 13px;
+  color: var(--ink-3);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.leg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--red);
+  color: var(--red) !important;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+  background: #fff;
+}
+.leg-btn:active {
+  transform: scale(0.97);
+}
+
+.stop-photo {
+  display: block;
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+  background: var(--photo);
+}
+
+.next-rule {
+  height: 2px;
+  width: 44px;
+  background: var(--rule);
+  margin-top: 10px;
+}
+
+.horizon {
+  display: flex;
+  flex-direction: column;
+}
+.horizon span {
+  display: block;
+  transition: background-color 0.8s ease;
+}
+.horizon span:nth-child(1) { height: 6px; background: var(--band1); }
+.horizon span:nth-child(2) { height: 5px; background: var(--band2); }
+.horizon span:nth-child(3) { height: 4px; background: var(--band3); }
+
+.day-tab {
+  min-height: 44px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.filter-chip {
+  min-height: 40px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
