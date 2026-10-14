@@ -52,6 +52,7 @@ export const SiteDetailModal: React.FC<SiteDetailModalProps> = ({
               src={photo.src}
               alt={photo.alt}
               loading="lazy"
+              referrerPolicy="no-referrer"
               className="w-full h-48 sm:h-56 object-cover"
             />
             <figcaption className="px-3 py-1.5 text-[10px] text-slate-500 bg-white">

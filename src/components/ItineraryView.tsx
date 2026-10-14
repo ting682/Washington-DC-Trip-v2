@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
-import { DayData, TripItem } from '../types';
+import { DayData, TripItem, TripPhoto } from '../types';
 import { getPlacePhone, getUberDeepLink, SITE_IMAGES, SITE_KNOWLEDGE_BASE } from '../data/tripData';
+import { WeatherCard } from './WeatherCard';
+import { TripPhotoGallery } from './PhotoGallery/TripPhotoGallery';
+import { DayPhotoReel } from './PhotoGallery/DayPhotoReel';
+import { PhotoLightboxModal } from './PhotoGallery/PhotoLightboxModal';
 
 interface ItineraryViewProps {
   activeDayIndex: number;
@@ -23,9 +27,14 @@ export const ItineraryView: React.FC<ItineraryViewProps> = ({
   onOpenFlightDrawer,
   onSwitchToKids,
 }) => {
+  const [itineraryTab, setItineraryTab] = useState<'timeline' | 'gallery'>('timeline');
   const [activeFilter, setActiveFilter] = useState<'all' | 'site' | 'transit' | 'food'>('all');
   const [syncingGates, setSyncingGates] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
+  // Reel photo interactions
+  const [reelLightboxPhoto, setReelLightboxPhoto] = useState<TripPhoto | null>(null);
+  const [galleryVersion, setGalleryVersion] = useState(0);
 
   const currentDay = days[activeDayIndex] || days[0];
   const items = currentDay.items || currentDay.fixedStopsBefore || [];
@@ -132,9 +141,52 @@ export const ItineraryView: React.FC<ItineraryViewProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Photo Hub Navigation Tile */}
+        <div
+          onClick={() => setItineraryTab(itineraryTab === 'gallery' ? 'timeline' : 'gallery')}
+          className={`cursor-pointer border rounded-2xl p-4 shadow-xs transition active:scale-98 ${
+            itineraryTab === 'gallery'
+              ? 'bg-[color:var(--navy)] text-white border-indigo-900 shadow-md'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg ${
+                itineraryTab === 'gallery'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-indigo-50 text-indigo-700'
+              }`}
+            >
+              <i className="fa-solid fa-camera-retro"></i>
+            </span>
+            <div>
+              <span
+                className={`text-[10px] font-bold uppercase tracking-wider block ${
+                  itineraryTab === 'gallery' ? 'text-indigo-200' : 'text-indigo-600'
+                }`}
+              >
+                Photo Hub
+              </span>
+              <h4 className="serif text-base font-bold">
+                {itineraryTab === 'gallery' ? 'Return to Schedule' : 'Trip Photo Gallery'}
+              </h4>
+              <p
+                className={`text-[11px] mt-0.5 ${
+                  itineraryTab === 'gallery' ? 'text-indigo-200' : 'text-slate-500'
+                }`}
+              >
+                {itineraryTab === 'gallery'
+                  ? 'Back to timeline stops'
+                  : 'Organized by day & uploads'}
+              </p>
+            </div>
+          </div>
+        </div>
       </aside>
 
-      {/* CENTER COLUMN: ITINERARY STOPS */}
+      {/* CENTER COLUMN: ITINERARY STOPS / PHOTO GALLERY */}
       <section className="lg:col-span-6 space-y-4">
         {/* Day Summary */}
         <div className="bg-[color:var(--navy)] text-white p-5 rounded-2xl shadow-md border-b-[6px] border-[color:var(--band2)]">
@@ -151,85 +203,221 @@ export const ItineraryView: React.FC<ItineraryViewProps> = ({
           </p>
         </div>
 
-        {/* Transit Summary Widget */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2.5">
-            <span className="w-9 h-9 rounded-full bg-[color:var(--red-soft)] text-[color:var(--red)] flex items-center justify-center font-bold text-sm">
-              <i className="fa-solid fa-route"></i>
-            </span>
-            <div>
-              <span className="font-bold text-slate-800 block text-sm">Getting around today</span>
-              <span className="text-slate-500 font-medium text-xs">
-                {uberCount} Uber ride{uberCount === 1 ? '' : 's'} · {walkCount} walk
-                {walkCount === 1 ? '' : 's'}
-                {metroCount > 0 ? ` · ${metroCount} Metro` : ''}
+        {/* View Switcher: Daily Timeline vs Trip Photo Gallery */}
+        <div className="bg-white p-1.5 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="flex items-center gap-1.5 w-full">
+            <button
+              onClick={() => setItineraryTab('timeline')}
+              className={`flex-1 py-2 px-3.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                itineraryTab === 'timeline'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <i className="fa-solid fa-list-check"></i>
+              <span>Day {activeDayIndex + 1} Schedule</span>
+            </button>
+            <button
+              onClick={() => setItineraryTab('gallery')}
+              className={`flex-1 py-2 px-3.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                itineraryTab === 'gallery'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <i className="fa-solid fa-camera-retro text-indigo-500"></i>
+              <span>Trip Photo Gallery</span>
+              <span className="text-[10px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded-full font-bold hidden sm:inline">
+                Organized by Day
               </span>
-            </div>
+            </button>
           </div>
         </div>
 
-        {/* Filter Chips */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar text-xs">
-          <button
-            onClick={() => setActiveFilter('all')}
-            className={`filter-chip px-3.5 py-1.5 rounded-full font-bold cursor-pointer transition ${
-              activeFilter === 'all'
-                ? 'bg-slate-800 text-white shadow-xs'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            All Stops
-          </button>
-          <button
-            onClick={() => setActiveFilter('site')}
-            className={`filter-chip px-3.5 py-1.5 rounded-full font-medium cursor-pointer transition ${
-              activeFilter === 'site'
-                ? 'bg-slate-800 text-white font-bold shadow-xs'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <i className="fa-solid fa-landmark mr-1"></i>Sights
-          </button>
-          <button
-            onClick={() => setActiveFilter('transit')}
-            className={`filter-chip px-3.5 py-1.5 rounded-full font-medium cursor-pointer transition ${
-              activeFilter === 'transit'
-                ? 'bg-slate-800 text-white font-bold shadow-xs'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <i className="fa-solid fa-car-side mr-1"></i>Rides &amp; Walks
-          </button>
-          <button
-            onClick={() => setActiveFilter('food')}
-            className={`filter-chip px-3.5 py-1.5 rounded-full font-medium cursor-pointer transition ${
-              activeFilter === 'food'
-                ? 'bg-slate-800 text-white font-bold shadow-xs'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <i className="fa-solid fa-utensils mr-1"></i>Food
-          </button>
-        </div>
+        {itineraryTab === 'gallery' ? (
+          /* PHOTO GALLERY VIEW */
+          <TripPhotoGallery
+            key={galleryVersion}
+            activeDayFilter={activeDayIndex}
+            onSelectItineraryDay={idx => {
+              setActiveDayIndex(idx);
+              setItineraryTab('timeline');
+            }}
+          />
+        ) : (
+          /* TIMELINE VIEW */
+          <>
+            {/* Live Weather Forecast */}
+            <WeatherCard />
 
-        {/* Timeline Container */}
-        <div className="space-y-3 relative before:absolute before:inset-0 before:left-5 before:w-0.5 before:bg-[color:var(--stone)]">
-          {filteredItems.length === 0 ? (
-            <div className="p-8 text-center text-xs text-slate-400 bg-white rounded-2xl border border-slate-200">
-              No activities match this filter.
+            {/* Day Photo Reel / Teaser */}
+            <DayPhotoReel
+              key={galleryVersion}
+              dayIndex={activeDayIndex}
+              onOpenFullGallery={idx => {
+                setActiveDayIndex(idx);
+                setItineraryTab('gallery');
+              }}
+              onSelectPhoto={photo => setReelLightboxPhoto(photo)}
+            />
+
+            {/* Transit Summary Widget */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2.5">
+                <span className="w-9 h-9 rounded-full bg-[color:var(--red-soft)] text-[color:var(--red)] flex items-center justify-center font-bold text-sm">
+                  <i className="fa-solid fa-route"></i>
+                </span>
+                <div>
+                  <span className="font-bold text-slate-800 block text-sm">Getting around today</span>
+                  <span className="text-slate-500 font-medium text-xs">
+                    {uberCount} Uber ride{uberCount === 1 ? '' : 's'} · {walkCount} walk
+                    {walkCount === 1 ? '' : 's'}
+                    {metroCount > 0 ? ` · ${metroCount} Metro` : ''}
+                  </span>
+                </div>
+              </div>
             </div>
-          ) : (
-            filteredItems.map((item, idx) => (
-              <TimelineCard
-                key={idx}
-                item={item}
-                dayIndex={activeDayIndex}
-                onOpenSiteModal={onOpenSiteModal}
-                onOpenDinnerModal={onOpenDinnerModal}
-              />
-            ))
-          )}
-        </div>
+
+            {/* Filter Chips */}
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar text-xs">
+              <button
+                onClick={() => setActiveFilter('all')}
+                className={`filter-chip px-3.5 py-1.5 rounded-full font-bold cursor-pointer transition ${
+                  activeFilter === 'all'
+                    ? 'bg-slate-800 text-white shadow-xs'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                All Stops
+              </button>
+              <button
+                onClick={() => setActiveFilter('site')}
+                className={`filter-chip px-3.5 py-1.5 rounded-full font-medium cursor-pointer transition ${
+                  activeFilter === 'site'
+                    ? 'bg-slate-800 text-white font-bold shadow-xs'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <i className="fa-solid fa-landmark mr-1"></i>Sights
+              </button>
+              <button
+                onClick={() => setActiveFilter('transit')}
+                className={`filter-chip px-3.5 py-1.5 rounded-full font-medium cursor-pointer transition ${
+                  activeFilter === 'transit'
+                    ? 'bg-slate-800 text-white font-bold shadow-xs'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <i className="fa-solid fa-car-side mr-1"></i>Rides &amp; Walks
+              </button>
+              <button
+                onClick={() => setActiveFilter('food')}
+                className={`filter-chip px-3.5 py-1.5 rounded-full font-medium cursor-pointer transition ${
+                  activeFilter === 'food'
+                    ? 'bg-slate-800 text-white font-bold shadow-xs'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <i className="fa-solid fa-utensils mr-1"></i>Food
+              </button>
+            </div>
+
+            {/* Timeline Container */}
+            <div className="space-y-3 relative before:absolute before:inset-0 before:left-5 before:w-0.5 before:bg-[color:var(--stone)]">
+              {filteredItems.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-400 bg-white rounded-2xl border border-slate-200">
+                  No activities match this filter.
+                </div>
+              ) : (
+                filteredItems.map((item, idx) => (
+                  <TimelineCard
+                    key={idx}
+                    item={item}
+                    dayIndex={activeDayIndex}
+                    onOpenSiteModal={onOpenSiteModal}
+                    onOpenDinnerModal={onOpenDinnerModal}
+                  />
+                ))
+              )}
+            </div>
+
+            {/* Bottom Day Navigation (Forward / Backward) */}
+            <div className="pt-6 pb-2 border-t border-slate-200 mt-6">
+              <div className="flex items-center justify-between gap-3">
+                {activeDayIndex > 0 ? (
+                  <button
+                    onClick={() => {
+                      setActiveDayIndex(activeDayIndex - 1);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="flex-1 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-800 p-3.5 rounded-2xl transition shadow-xs flex items-center gap-3 text-left cursor-pointer group active:scale-[0.98]"
+                    aria-label={`Go to previous day: ${days[activeDayIndex - 1]?.day}`}
+                  >
+                    <span className="w-9 h-9 rounded-xl bg-slate-100 group-hover:bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 transition">
+                      <i className="fa-solid fa-arrow-left text-xs"></i>
+                    </span>
+                    <div className="min-w-0">
+                      <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 block">
+                        Previous Day
+                      </span>
+                      <span className="text-xs font-bold text-slate-900 truncate block">
+                        Day {activeDayIndex} · {days[activeDayIndex - 1]?.day.split(',')[0]}
+                      </span>
+                    </div>
+                  </button>
+                ) : (
+                  <div className="flex-1 hidden sm:block" />
+                )}
+
+                {activeDayIndex < days.length - 1 ? (
+                  <button
+                    onClick={() => {
+                      setActiveDayIndex(activeDayIndex + 1);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 border border-blue-600 text-white p-3.5 rounded-2xl transition shadow-xs flex items-center justify-between gap-3 text-right cursor-pointer group active:scale-[0.98]"
+                    aria-label={`Go to next day: ${days[activeDayIndex + 1]?.day}`}
+                  >
+                    <div className="min-w-0 text-left sm:text-right flex-1">
+                      <span className="text-[10px] uppercase font-black tracking-wider text-blue-200 block">
+                        Next Day
+                      </span>
+                      <span className="text-xs font-bold text-white truncate block">
+                        Day {activeDayIndex + 2} · {days[activeDayIndex + 1]?.day.split(',')[0]}
+                      </span>
+                    </div>
+                    <span className="w-9 h-9 rounded-xl bg-white/20 group-hover:bg-white/30 text-white flex items-center justify-center shrink-0 transition">
+                      <i className="fa-solid fa-arrow-right text-xs"></i>
+                    </span>
+                  </button>
+                ) : (
+                  <div className="flex-1 hidden sm:block" />
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Modal for Reel Photo Lightbox */}
+        {/* Modal for Reel Photo Lightbox */}
+        <PhotoLightboxModal
+          photo={reelLightboxPhoto}
+          onClose={() => setReelLightboxPhoto(null)}
+          onDelete={id => {
+            try {
+              const STORAGE_KEY = 'dc_family_trip_google_photos_v1';
+              const existing = localStorage.getItem(STORAGE_KEY);
+              if (existing) {
+                const parsed: TripPhoto[] = JSON.parse(existing);
+                const updated = parsed.filter(p => p.id !== id);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+                setGalleryVersion(v => v + 1);
+              }
+            } catch (e) {
+              console.warn(e);
+            }
+          }}
+        />
       </section>
 
       {/* RIGHT COLUMN: DESKTOP GATES MONITOR */}
@@ -512,52 +700,76 @@ const TimelineCard: React.FC<TimelineCardProps> = ({
   // FLIGHT CARD
   if (item.type === 'flight') {
     const phone = getPlacePhone(item);
+    const flightPhoto = item.siteKey && SITE_IMAGES[item.siteKey] ? SITE_IMAGES[item.siteKey] : null;
     return (
       <div className="relative pl-9">
         <div className="absolute left-2.5 -translate-x-1/2 top-4 w-7 h-7 rounded-full bg-blue-600 border-2 border-white flex items-center justify-center text-white shadow-xs z-10">
           <i className="fa-solid fa-plane text-xs"></i>
         </div>
-        <div className="bg-white rounded-2xl p-4 border border-blue-300 shadow-xs">
-          <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-[10px] font-black uppercase tracking-wider bg-blue-600 text-white px-2 py-0.5 rounded">
-              American Airlines
-            </span>
-            <div className="flex items-center gap-1.5">
-              {durationBadge}
-              <span className="text-slate-800 font-bold">{item.time}</span>
+        <div className="bg-white rounded-2xl border border-blue-300 shadow-xs overflow-hidden">
+          {flightPhoto && (
+            <div className="relative h-44 overflow-hidden group">
+              <img
+                src={flightPhoto.src}
+                alt={flightPhoto.alt}
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-black/20 to-transparent pointer-events-none" />
+              <div className="absolute bottom-2.5 left-3 right-3 text-white text-[11px] font-bold drop-shadow flex items-center justify-between">
+                <span className="flex items-center gap-1.5 truncate max-w-[80%]">
+                  <i className="fa-solid fa-plane-departure text-blue-400"></i>
+                  {flightPhoto.alt}
+                </span>
+                <span className="text-[10px] bg-blue-600/90 backdrop-blur-xs px-2 py-0.5 rounded font-mono font-bold shrink-0">
+                  DCA
+                </span>
+              </div>
             </div>
+          )}
+          <div className="p-4">
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="text-[10px] font-black uppercase tracking-wider bg-blue-600 text-white px-2 py-0.5 rounded">
+                American Airlines
+              </span>
+              <div className="flex items-center gap-1.5">
+                {durationBadge}
+                <span className="text-slate-800 font-bold">{item.time}</span>
+              </div>
+            </div>
+            <h4 className="font-black text-sm text-slate-900 mt-1">{item.title}</h4>
+            <p className="text-xs text-slate-600 mt-1 leading-relaxed">{item.desc}</p>
+            {item.flightMeta && (
+              <div className="mt-3 p-2.5 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-slate-400 block">
+                    Departure Gate
+                  </span>
+                  <span className="font-black font-mono text-slate-900">
+                    {item.flightMeta.depGate}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-slate-400 block">
+                    Arrival Gate
+                  </span>
+                  <span className="font-black font-mono text-slate-900">
+                    {item.flightMeta.arrGate}
+                  </span>
+                </div>
+              </div>
+            )}
+            {phone && (
+              <a
+                href={`tel:${phone.replace(/[^0-9+]/g, '')}`}
+                className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition"
+              >
+                <i className="fa-solid fa-phone text-[11px]"></i>
+                <span>American Airlines: {phone}</span>
+              </a>
+            )}
           </div>
-          <h4 className="font-black text-sm text-slate-900 mt-1">{item.title}</h4>
-          <p className="text-xs text-slate-600 mt-1 leading-relaxed">{item.desc}</p>
-          {item.flightMeta && (
-            <div className="mt-3 p-2.5 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-2 gap-2 text-xs">
-              <div>
-                <span className="text-[9px] uppercase font-bold text-slate-400 block">
-                  Departure Gate
-                </span>
-                <span className="font-black font-mono text-slate-900">
-                  {item.flightMeta.depGate}
-                </span>
-              </div>
-              <div>
-                <span className="text-[9px] uppercase font-bold text-slate-400 block">
-                  Arrival Gate
-                </span>
-                <span className="font-black font-mono text-slate-900">
-                  {item.flightMeta.arrGate}
-                </span>
-              </div>
-            </div>
-          )}
-          {phone && (
-            <a
-              href={`tel:${phone.replace(/[^0-9+]/g, '')}`}
-              className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition"
-            >
-              <i className="fa-solid fa-phone text-[11px]"></i>
-              <span>American Airlines: {phone}</span>
-            </a>
-          )}
         </div>
       </div>
     );
@@ -578,14 +790,29 @@ const TimelineCard: React.FC<TimelineCardProps> = ({
       </div>
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         {photo && !photoError && (
-          <img
-            src={photo.src}
-            alt={photo.alt}
-            loading="lazy"
-            className={`stop-photo ${hasSiteInfo ? 'cursor-pointer' : ''}`}
-            onClick={() => hasSiteInfo && item.siteKey && onOpenSiteModal(item.siteKey)}
-            onError={() => setPhotoError(true)}
-          />
+          <div className="relative group overflow-hidden">
+            <img
+              src={photo.src}
+              alt={photo.alt}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              className={`stop-photo ${hasSiteInfo ? 'cursor-pointer group-hover:scale-105' : ''} transition-transform duration-300`}
+              onClick={() => hasSiteInfo && item.siteKey && onOpenSiteModal(item.siteKey)}
+              onError={() => setPhotoError(true)}
+            />
+            {item.isDinner && (
+              <div className="absolute top-2.5 left-2.5 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-md">
+                <i className="fa-solid fa-utensils text-rose-400"></i>
+                <span>Family Dinner</span>
+              </div>
+            )}
+            {item.siteKey === 'holiday-inn' && (
+              <div className="absolute top-2.5 left-2.5 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-md">
+                <i className="fa-solid fa-hotel text-amber-400"></i>
+                <span>Trip Home Base</span>
+              </div>
+            )}
+          </div>
         )}
         <div className="p-4">
           <div className="flex items-center justify-between gap-2 mb-1.5">

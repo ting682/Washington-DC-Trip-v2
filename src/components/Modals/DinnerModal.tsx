@@ -96,18 +96,37 @@ export const DinnerModal: React.FC<DinnerModalProps> = ({
           <label className="block text-xs font-bold text-slate-700 mb-1.5">
             Pick a Popular Alternative:
           </label>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {PRESET_DINNERS.map((preset, idx) => (
               <button
                 key={idx}
                 onClick={() => handleSelectPreset(preset)}
-                className="w-full text-left p-2.5 rounded-xl border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 transition flex items-center justify-between text-xs cursor-pointer"
+                className="w-full text-left p-2 rounded-xl border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 transition flex items-center justify-between gap-3 text-xs cursor-pointer group"
               >
-                <div>
-                  <strong className="text-slate-900 block">{preset.name}</strong>
-                  <span className="text-[11px] text-slate-500">{preset.address}</span>
+                <div className="flex items-center gap-3 min-w-0">
+                  {preset.photoUrl && (
+                    <img
+                      src={preset.photoUrl}
+                      alt={preset.name}
+                      referrerPolicy="no-referrer"
+                      className="w-12 h-12 rounded-lg object-cover border border-slate-200 group-hover:scale-105 transition-transform shrink-0"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <strong className="text-slate-900 block truncate">{preset.name}</strong>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                      {preset.cuisine && (
+                        <span className="text-[10px] bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded font-semibold shrink-0">
+                          {preset.cuisine}
+                        </span>
+                      )}
+                      <span className="truncate">{preset.address}</span>
+                    </div>
+                  </div>
                 </div>
-                <span className="text-indigo-600 font-bold text-xs">Select ➔</span>
+                <span className="text-indigo-600 font-bold text-xs shrink-0 group-hover:translate-x-0.5 transition-transform">
+                  Select ➔
+                </span>
               </button>
             ))}
           </div>

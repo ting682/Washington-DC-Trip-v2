@@ -124,3 +124,45 @@ export interface SpyMission {
   answer: string;
   hint: string;
 }
+
+export interface TripPhoto {
+  id: string;
+  dayIndex: number;
+  dayLabel: string;
+  dayTheme: string;
+  src: string;
+  alt: string;
+  title: string;
+  caption?: string;
+  credit?: string;
+  creditUrl?: string;
+  siteKey?: string;
+  uploadedByUser?: boolean;
+  uploadedAt?: string;
+  tags?: string[];
+  accountOwner?: 'account1' | 'account2';
+  accountOwnerName?: string;
+  accountOwnerEmail?: string;
+  googleMediaItemId?: string;
+}
+
+export interface GoogleAccountInfo {
+  id: 'account1' | 'account2';
+  customLabel: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  lastSyncTime: string | null;
+  photoCount: number;
+}
+
+export interface GoogleAlbumResult {
+  id: string;
+  title: string;
+  productUrl: string;
+  shareableUrl?: string;
+  isShared?: boolean;
+  itemCount?: number;
+  createdAt: string;
+  creatorAccountLabel?: string;
+}

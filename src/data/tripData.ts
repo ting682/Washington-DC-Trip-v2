@@ -222,6 +222,94 @@ export const SITE_KNOWLEDGE_BASE: Record<string, SiteKnowledge> = {
     why: 'Often called \'The People\'s Common,\' it is the premier public vantage point for viewing the White House. Bordered by historic homes and St. John\'s Church (the \'Church of the Presidents\').',
     kids: 'Stand right along the North Lawn fence for the best unobstructed postcard family photo with the White House in the background!',
   },
+  'holiday-inn': {
+    title: 'Holiday Inn Washington-Central / White House',
+    category: 'Hotel & Home Base · 1501 Rhode Island Ave NW',
+    icon: 'fa-hotel',
+    what: 'Centrally located hotel in downtown DC along Rhode Island Ave NW, within walking distance of Dupont Circle, the White House, and major transit routes.',
+    why: 'Our family home base for all 5 nights in Washington, D.C. Features a rooftop observation view, on-site breakfast, free Wi-Fi, and convenient access to Metro stations.',
+    kids: 'Check out the skyline views from the hotel, plug in all devices to recharge overnight, and fuel up with hot breakfast before big walking days!',
+  },
+  'dca-airport': {
+    title: 'Ronald Reagan Washington National Airport (DCA)',
+    category: 'Aviation & Arrival Port · Arlington, VA',
+    icon: 'fa-plane-arrival',
+    what: 'The primary commercial airport closest to downtown Washington, D.C., located just across the Potomac River in Arlington, Virginia.',
+    why: 'Famous for its dramatic river approach flight path offering aerial views of the National Mall monuments, and César Pelli’s sunlit Terminal 2 with yellow steel arches.',
+    kids: 'Look out the airplane window on approach to spot the Washington Monument and Capitol dome, and watch planes taxi right beside the Potomac River!',
+  },
+  'dca-departure': {
+    title: 'Reagan National Airport Departure (Gate 35B)',
+    category: 'Aviation & Farewell · Flight AA 4800 to ATL',
+    icon: 'fa-plane-departure',
+    what: 'American Airlines departure terminal at DCA Terminal 2, boarding flight AA 4800 nonstop back home to Atlanta.',
+    why: 'Features panoramic floor-to-ceiling airfield windows, family-friendly food options, and quick rideshare drop-off right outside the terminal doors.',
+    kids: 'Wave goodbye to Washington D.C. as the plane takes off over the Potomac River and heads south toward Atlanta!',
+  },
+  'dinner-ammathar': {
+    title: 'Ammathar Thai Cuisine',
+    category: 'Family Dinner · 1326 14th St NW (Near Hotel)',
+    icon: 'fa-utensils',
+    what: 'Authentic, family-owned Thai restaurant located along the vibrant 14th Street corridor, just a short 5-minute stroll from our Holiday Inn.',
+    why: 'Renowned for rich Panang curry, Pad See Ew, and fresh Pad Thai. The kitchen easily accommodates kid-friendly requests with mild seasonings.',
+    kids: 'Try the sweet crispy spring rolls, mild chicken satay skewers with peanut dip, or sweet mango sticky rice for dessert!',
+  },
+  'dinner-tokyo': {
+    title: 'Tokyo Japanese Steakhouse',
+    category: 'Family Dinner · Historic Old Town Alexandria',
+    icon: 'fa-fire-burner',
+    what: 'Traditional teppanyaki hibachi steakhouse located in Canal Center Plaza along the historic Alexandria waterfront.',
+    why: 'Master hibachi chefs prepare tender steak, jumbo shrimp, chicken, and fried rice right before your eyes with playful theatrical fire and knife tricks.',
+    kids: 'Watch the chef make an onion volcano spout real fire, catch a flying zucchini piece, and enjoy sizzling fried rice!',
+  },
+  'dinner-makers-union': {
+    title: 'Makers Union Pub for the People',
+    category: 'Family Dinner · The Wharf Southwest Waterfront',
+    icon: 'fa-burger',
+    what: 'Vibrant modern gastropub situated right along the waterfront promenade at The Wharf DC.',
+    why: 'Features fresh artisan burgers, crispy warm soft pretzels with beer cheese, seafood specialties, craft drinks, and marina promenade views.',
+    kids: 'Dig into the giant warm Bavarian pretzel, crispy chicken tenders, or a gourmet cheeseburger with a mountain of seasoned fries!',
+  },
+  'dinner-rasika': {
+    title: 'Rasika (Penn Quarter)',
+    category: 'Family Dinner · Award-Winning Modern Indian',
+    icon: 'fa-bowl-rice',
+    what: 'James Beard Award-winning restaurant by Chef Vikram Sunderam, widely regarded as one of America\'s finest Indian culinary destinations.',
+    why: 'Celebrated for its legendary crispy spinach Palak Chaat, flavorful tandoori chicken, buttery slow-cooked dal, and warm garlic naan fresh from the tandoor.',
+    kids: 'Tear into warm, fluffy butter and garlic naan bread right out of the clay oven, and sample mild, creamy butter chicken with basmati rice!',
+  },
+  'dinner-old-ebbitt': {
+    title: 'Old Ebbitt Grill (DC Classic)',
+    category: 'Family Dinner · Historic Tavern near White House',
+    icon: 'fa-utensils',
+    what: 'Washington’s oldest operating saloon, founded in 1856, located just steps from the White House at 675 15th Street NW.',
+    why: 'Rich Victorian mahogany decor, antique taxidermy, historic political memorabilia, and one of the most famous fresh oyster bars in the United States.',
+    kids: 'Spot the antique brass clocks and historic paintings on the walls, and enjoy classic American favorites like bacon burgers, fish & chips, and hot sundaes!',
+  },
+  'dinner-the-hamilton': {
+    title: 'The Hamilton',
+    category: 'Family Dinner · Downtown American & Sushi',
+    icon: 'fa-fish',
+    what: 'Sprawling multi-level culinary landmark near the Treasury Building featuring American bistro classics and a dedicated sushi bar.',
+    why: 'Offers something delicious for every family member: fresh handcrafted sushi rolls, gourmet burgers, fresh salads, and seasonal desserts.',
+    kids: 'Choose between crunchy California rolls or classic sliders, plus house-made ice creams and chocolate desserts!',
+  },
+  'dinner-founding-farmers': {
+    title: 'Founding Farmers',
+    category: 'Family Dinner · Farm-to-Table Scratch Kitchen',
+    icon: 'fa-wheat-awn',
+    what: 'Farmer-owned restaurant on Pennsylvania Avenue serving made-from-scratch American comfort food sourced from family farms across the nation.',
+    why: 'Beloved for farm-fresh ingredients, buttermilk fried chicken & waffles, skillet cornbread with honey butter, and homemade sodas.',
+    kids: 'Enjoy buttermilk chicken tenders, scratch mac & cheese, and fresh-baked cinnamon rolls or farm donuts!',
+  },
+  'dinner-carmines': {
+    title: 'Carmine\'s Italian (Penn Quarter)',
+    category: 'Family Dinner · Family-Style Italian Feast',
+    icon: 'fa-pizza-slice',
+    what: 'Legendary family-style Italian restaurant in Penn Quarter serving massive sharing platters designed for family gatherings.',
+    why: 'Every hearty platter feeds 4 to 6 people: gigantic meatballs, heaping mounds of pasta with slow-simmered marinara, chicken parmigiana, and garlic bread.',
+    kids: 'Marvel at meatballs the size of baseballs and twirl delicious spaghetti on giant family sharing platters!',
+  },
 };
 
 export const SITE_FACTS: Record<string, string[]> = {
@@ -480,6 +568,72 @@ export const SITE_IMAGES: Record<string, SiteImage> = {
     credit: 'Photo: Wikimedia Commons',
     creditUrl: 'https://commons.wikimedia.org/wiki/File:North_Portico_of_the_White_House_photo_Don_Ramey_Logan.jpg',
   },
+  'holiday-inn': {
+    src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Holiday_Inn_Washington_DC_Central-White_House.JPG?width=960',
+    alt: 'Holiday Inn Washington DC - Central / White House on Rhode Island Ave NW',
+    credit: 'Photo: Wikimedia Commons',
+    creditUrl: 'https://commons.wikimedia.org/wiki/File:Holiday_Inn_Washington_DC_Central-White_House.JPG',
+  },
+  'dca-airport': {
+    src: 'https://commons.wikimedia.org/wiki/Special:FilePath/2016-03-18_15_44_34_Interior_of_Terminal_B_at_Ronald_Reagan_Washington_National_Airport_in_Arlington,_Virginia.jpg?width=960',
+    alt: 'Reagan National Airport (DCA) Terminal 2 and runway views',
+    credit: 'Photo: Wikimedia Commons',
+    creditUrl: 'https://commons.wikimedia.org/wiki/File:2016-03-18_15_44_34_Interior_of_Terminal_B_at_Ronald_Reagan_Washington_National_Airport_in_Arlington,_Virginia.jpg',
+  },
+  'dca-departure': {
+    src: 'https://commons.wikimedia.org/wiki/Special:FilePath/2016-03-18_16_41_48_View_of_Washington,_DC_from_an_airplane_departing_Ronald_Reagan_Washington_National_Airport,_with_DAR_Constitution_Hall_at_the_center.jpg?width=960',
+    alt: 'View of Washington DC departing Reagan National Airport',
+    credit: 'Photo: Wikimedia Commons',
+    creditUrl: 'https://commons.wikimedia.org/wiki/File:2016-03-18_16_41_48_View_of_Washington,_DC_from_an_airplane_departing_Ronald_Reagan_Washington_National_Airport,_with_DAR_Constitution_Hall_at_the_center.jpg',
+  },
+  'dinner-ammathar': {
+    src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Phat_Thai_kung_Chang_Khien_street_stall.jpg?width=960',
+    alt: 'Ammathar Thai Cuisine - Authentic freshly prepared Pad Thai and curries',
+    credit: 'Photo: Wikimedia Commons',
+    creditUrl: 'https://commons.wikimedia.org/wiki/File:Phat_Thai_kung_Chang_Khien_street_stall.jpg',
+  },
+  'dinner-tokyo': {
+    src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Benihana_dinner.jpg?width=960',
+    alt: 'Tokyo Japanese Steakhouse - Hibachi steak, shrimp, seasoned fried rice, and dipping sauces',
+    credit: 'Photo: Larry D. Moore (CC BY 4.0 via Wikimedia Commons)',
+    creditUrl: 'https://commons.wikimedia.org/wiki/File:Benihana_dinner.jpg',
+  },
+  'dinner-makers-union': {
+    src: 'https://commons.wikimedia.org/wiki/Special:FilePath/RedDot_Burger.jpg?width=960',
+    alt: 'Makers Union Pub at The Wharf - Waterfront burgers and dinner',
+    credit: 'Photo: Wikimedia Commons',
+    creditUrl: 'https://commons.wikimedia.org/wiki/File:RedDot_Burger.jpg',
+  },
+  'dinner-rasika': {
+    src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Tradtional_Thali.jpg?width=960',
+    alt: 'Rasika - Award-winning Modern Indian dinner spread in Penn Quarter',
+    credit: 'Photo: Wikimedia Commons',
+    creditUrl: 'https://commons.wikimedia.org/wiki/File:Tradtional_Thali.jpg',
+  },
+  'dinner-old-ebbitt': {
+    src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Old_Ebbitt_Grill.jpg?width=960',
+    alt: 'Old Ebbitt Grill - Historic tavern dining room and oyster bar near the White House',
+    credit: 'Photo: Wikimedia Commons',
+    creditUrl: 'https://commons.wikimedia.org/wiki/File:Old_Ebbitt_Grill.jpg',
+  },
+  'dinner-the-hamilton': {
+    src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Sushi_platter.jpg?width=960',
+    alt: 'The Hamilton - Handcrafted sushi platter and American bistro selections',
+    credit: 'Photo: Wikimedia Commons',
+    creditUrl: 'https://commons.wikimedia.org/wiki/File:Sushi_platter.jpg',
+  },
+  'dinner-founding-farmers': {
+    src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Chicken_and_waffles_with_peaches_and_cream.jpg?width=960',
+    alt: 'Founding Farmers - Farm-to-table fried chicken and waffles',
+    credit: 'Photo: Wikimedia Commons',
+    creditUrl: 'https://commons.wikimedia.org/wiki/File:Chicken_and_waffles_with_peaches_and_cream.jpg',
+  },
+  'dinner-carmines': {
+    src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Spaghettoni.jpg?width=960',
+    alt: 'Carmine\'s - Family-style Italian pasta platter',
+    credit: 'Photo: Wikimedia Commons',
+    creditUrl: 'https://commons.wikimedia.org/wiki/File:Spaghettoni.jpg',
+  },
 };
 
 export const SITE_PHONES: Record<string, SitePhone> = {
@@ -572,15 +726,100 @@ export async function geocodeAddress(text: string): Promise<Coordinates | null> 
 }
 
 export const PRESET_DINNERS = [
-  { name: 'Old Ebbitt Grill (DC Classic)', address: '675 15th St NW, Washington, DC', lat: 38.8980, lng: -77.0336, website: 'https://www.ebbitt.com/' },
-  { name: 'Rasika (Penn Quarter - Modern Indian)', address: '633 D St NW, Washington, DC', lat: 38.8948, lng: -77.0212, website: 'https://www.rasikarestaurant.com/' },
-  { name: 'The Hamilton (American & Sushi)', address: '600 14th St NW, Washington, DC', lat: 38.8974, lng: -77.0322, website: 'https://www.thehamiltondc.com/' },
-  { name: 'Founding Farmers (Farm-to-Table)', address: '1924 Pennsylvania Ave NW, Washington, DC', lat: 38.9004, lng: -77.0441, website: 'https://www.wearefoundingfarmers.com/' },
-  { name: 'Makers Union (The Wharf Waterfront)', address: '664 Maine Ave SW, Washington, DC', lat: 38.8798, lng: -77.0242, website: 'https://www.makersunionpub.com/wharf-dc' },
-  { name: 'Ammathar Thai Cuisine (Near Hotel)', address: '1326 14th St NW, Washington, DC', lat: 38.9082, lng: -77.0319, website: 'https://www.ammatharthai.com/' },
-  { name: 'Tokyo Japanese Steakhouse (Alexandria)', address: '66 Canal Center Plaza, Alexandria, VA', lat: 38.8122, lng: -77.0398, website: 'https://www.tjsh1995.com/' },
-  { name: 'Carmine\'s Italian (Family Style - Penn Qtr)', address: '425 7th St NW, Washington, DC', lat: 38.8953, lng: -77.0219, website: 'https://www.carminesnyc.com/locations/washington-dc' },
+  {
+    name: 'Old Ebbitt Grill (DC Classic)',
+    address: '675 15th St NW, Washington, DC',
+    lat: 38.8980,
+    lng: -77.0336,
+    website: 'https://www.ebbitt.com/',
+    siteKey: 'dinner-old-ebbitt',
+    cuisine: 'Historic Saloon & Oyster Bar',
+    photoUrl: 'https://commons.wikimedia.org/wiki/Special:FilePath/Old_Ebbitt_Grill.jpg?width=960',
+  },
+  {
+    name: 'Rasika (Penn Quarter - Modern Indian)',
+    address: '633 D St NW, Washington, DC',
+    lat: 38.8948,
+    lng: -77.0212,
+    website: 'https://www.rasikarestaurant.com/',
+    siteKey: 'dinner-rasika',
+    cuisine: 'Award-Winning Modern Indian',
+    photoUrl: 'https://commons.wikimedia.org/wiki/Special:FilePath/Tradtional_Thali.jpg?width=960',
+  },
+  {
+    name: 'The Hamilton (American & Sushi)',
+    address: '600 14th St NW, Washington, DC',
+    lat: 38.8974,
+    lng: -77.0322,
+    website: 'https://www.thehamiltondc.com/',
+    siteKey: 'dinner-the-hamilton',
+    cuisine: 'American Bistro & Fresh Sushi Bar',
+    photoUrl: 'https://commons.wikimedia.org/wiki/Special:FilePath/Sushi_platter.jpg?width=960',
+  },
+  {
+    name: 'Founding Farmers (Farm-to-Table)',
+    address: '1924 Pennsylvania Ave NW, Washington, DC',
+    lat: 38.9004,
+    lng: -77.0441,
+    website: 'https://www.wearefoundingfarmers.com/',
+    siteKey: 'dinner-founding-farmers',
+    cuisine: 'Farmer-Owned Scratch Kitchen',
+    photoUrl: 'https://commons.wikimedia.org/wiki/Special:FilePath/Chicken_and_waffles_with_peaches_and_cream.jpg?width=960',
+  },
+  {
+    name: 'Makers Union (The Wharf Waterfront)',
+    address: '664 Maine Ave SW, Washington, DC',
+    lat: 38.8798,
+    lng: -77.0242,
+    website: 'https://www.makersunionpub.com/wharf-dc',
+    siteKey: 'dinner-makers-union',
+    cuisine: 'Waterfront Gastropub & Burgers',
+    photoUrl: 'https://commons.wikimedia.org/wiki/Special:FilePath/RedDot_Burger.jpg?width=960',
+  },
+  {
+    name: 'Ammathar Thai Cuisine (Near Hotel)',
+    address: '1326 14th St NW, Washington, DC',
+    lat: 38.9082,
+    lng: -77.0319,
+    website: 'https://www.ammatharthai.com/',
+    siteKey: 'dinner-ammathar',
+    cuisine: 'Family-Run Thai & Pad Thai',
+    photoUrl: 'https://commons.wikimedia.org/wiki/Special:FilePath/Phat_Thai_kung_Chang_Khien_street_stall.jpg?width=960',
+  },
+  {
+    name: 'Tokyo Japanese Steakhouse (Alexandria)',
+    address: '66 Canal Center Plaza, Alexandria, VA',
+    lat: 38.8122,
+    lng: -77.0398,
+    website: 'https://www.tjsh1995.com/',
+    siteKey: 'dinner-tokyo',
+    cuisine: 'Hibachi Steak, Shrimp & Fried Rice',
+    photoUrl: 'https://commons.wikimedia.org/wiki/Special:FilePath/Benihana_dinner.jpg?width=960',
+  },
+  {
+    name: 'Carmine\'s Italian (Family Style - Penn Qtr)',
+    address: '425 7th St NW, Washington, DC',
+    lat: 38.8953,
+    lng: -77.0219,
+    website: 'https://www.carminesnyc.com/locations/washington-dc',
+    siteKey: 'dinner-carmines',
+    cuisine: 'Family-Style Sharing Platters',
+    photoUrl: 'https://commons.wikimedia.org/wiki/Special:FilePath/Spaghettoni.jpg?width=960',
+  },
 ];
+
+export function getDinnerKey(name: string): string {
+  const n = (name || '').toLowerCase();
+  if (n.includes('ammathar') || n.includes('thai')) return 'dinner-ammathar';
+  if (n.includes('tokyo') || n.includes('steakhouse') || n.includes('japanese') || n.includes('hibachi')) return 'dinner-tokyo';
+  if (n.includes('makers union') || n.includes('wharf')) return 'dinner-makers-union';
+  if (n.includes('rasika') || n.includes('indian')) return 'dinner-rasika';
+  if (n.includes('ebbitt')) return 'dinner-old-ebbitt';
+  if (n.includes('hamilton')) return 'dinner-the-hamilton';
+  if (n.includes('farmers')) return 'dinner-founding-farmers';
+  if (n.includes('carmine') || n.includes('italian')) return 'dinner-carmines';
+  return 'dinner-ammathar';
+}
 
 export const initialTripData: DayData[] = [
   {
@@ -645,6 +884,7 @@ export const initialTripData: DayData[] = [
         desc: 'Nonstop Embraer 175 flight. Seats 16A, 16D, 16C, 16F. Terminal 2 Baggage Claim 4.',
         flightMeta: { depGate: 'ATL Gate T12 (North)', arrGate: 'DCA Gate 38 (Term 2)', carousel: 'Claim 4' },
         icon: 'fa-plane-arrival',
+        siteKey: 'dca-airport',
       },
       {
         type: 'transit-uber',
@@ -667,6 +907,7 @@ export const initialTripData: DayData[] = [
         website: 'https://www.ihg.com/holidayinn/hotels/us/en/washington/wascc/hoteldetail',
         desc: 'Settle into rooms and freshen up before dinner.',
         icon: 'fa-hotel',
+        siteKey: 'holiday-inn',
       },
     ],
   },
@@ -1064,6 +1305,7 @@ export const initialTripData: DayData[] = [
         website: 'https://www.ihg.com/holidayinn/hotels/us/en/washington/wascc/hoteldetail',
         desc: 'Final packing and room checkout (check-out time 12:00 PM). Have luggage loaded by 11:30 AM.',
         icon: 'fa-suitcase',
+        siteKey: 'holiday-inn',
       },
       {
         type: 'transit-uber',
@@ -1087,6 +1329,7 @@ export const initialTripData: DayData[] = [
         desc: 'Departs DCA 1:59 PM (Terminal 2 Gate 35B/C29). Nonstop to ATL arriving 4:08 PM (Gate T9/T10). Claim 2/7.',
         flightMeta: { depGate: 'DCA Gate 35B / C29', arrGate: 'ATL Gate T9 / T10', carousel: 'Claim 2 / 7' },
         icon: 'fa-plane-departure',
+        siteKey: 'dca-departure',
       },
     ],
   },
@@ -1183,6 +1426,7 @@ export function computeTripDay(dayData: DayData, dIdx: number, customDinner?: Di
       });
     }
 
+    const dinnerKey = getDinnerKey(computed.dinner.name);
     items.push({
       type: 'food',
       time: computed.dinner.time,
@@ -1194,6 +1438,7 @@ export function computeTripDay(dayData: DayData, dIdx: number, customDinner?: Di
       isDinner: true,
       dayIndex: dIdx,
       icon: 'fa-utensils',
+      siteKey: dinnerKey,
     });
 
     const distToHotel = calcDistanceMiles(computed.dinner.coords, HOTEL_COORDS);
