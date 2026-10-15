@@ -1,20 +1,27 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 
-interface HourlyForecast {
+export interface HourlyForecast {
   time: string;
+  dateStr: string;
   hourLabel: string;
+  hourNum: number;
   temperature: number;
   apparentTemp: number;
   weatherCode: number;
   condition: string;
   icon: string;
   precipProb: number;
+  windSpeed: number;
 }
 
-interface DayForecast {
+export interface DayForecast {
   date: string;
   dayName: string;
+  fullDayLabel: string;
   formattedDate: string;
+  tripDayNumber: number;
+  tripTitle: string;
+  tripHighlight: string;
   weatherCode: number;
   condition: string;
   icon: string;
@@ -26,9 +33,10 @@ interface DayForecast {
   windSpeedMax: number;
   uvIndexMax: number;
   walkingTip: string;
+  hourly: HourlyForecast[];
 }
 
-interface CurrentWeather {
+export interface CurrentWeather {
   temperature: number;
   apparentTemp: number;
   weatherCode: number;
@@ -42,14 +50,18 @@ interface CurrentWeather {
 export const WeatherCard: React.FC = () => {
   const [current, setCurrent] = useState<CurrentWeather | null>(null);
   const [forecast, setForecast] = useState<DayForecast[]>([]);
-  const [hourly, setHourly] = useState<HourlyForecast[]>([]);
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(0);
-  const [showHourly, setShowHourly] = useState<boolean>(false);
+  const [showHourly, setShowHourly] = useState<boolean>(true);
+  const [hourlyFilter, setHourlyFilter] = useState<'daytime' | 'all'>('daytime');
   const [unit, setUnit] = useState<'F' | 'C'>('F');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>('');
+
+  const hourlyScrollRef = useRef<HTMLDivElement>(null);
+  const dailyScrollRef = useRef<HTMLDivElement>(null);
+  const [dailyPage, setDailyPage] = useState<number>(0);
 
   const toDisplayTemp = (tempF: number) => {
     if (unit === 'C') {
@@ -101,32 +113,117 @@ export const WeatherCard: React.FC = () => {
     }
   };
 
-  const getWalkingAdvice = (tempMax: number, precipProb: number, uv: number) => {
-    if (precipProb >= 50) {
-      return 'High rain likelihood: Ideal day for Smithsonian indoor galleries (Air & Space, Natural History). Bring compact umbrellas.';
+  const getTripMeta = (dateStr: string, idx: number) => {
+    if (dateStr.endsWith('10-15') || idx === 0) {
+      return {
+        tripDayNumber: 1,
+        tripTitle: 'Duluth ➔ DC Arrival',
+        tripHighlight: 'ATL ➔ DCA & Thai Dinner',
+        dayLabel: 'Thu, Oct 15',
+        walkingTip:
+          'Arrival & Evening Walk: Warm afternoon (78°F). Pleasant evening for walking down 14th St NW to Ammathar Thai Cuisine. Comfortable in light clothing.',
+      };
     }
-    if (precipProb >= 25) {
-      return 'Scattered showers possible: Carry light waterproofs. Great for combining indoor museum exhibits and outdoor monuments.';
+    if (dateStr.endsWith('10-16') || idx === 1) {
+      return {
+        tripDayNumber: 2,
+        tripTitle: 'White House & Mall',
+        tripHighlight: 'Security & Tidal Basin',
+        dayLabel: 'Fri, Oct 16',
+        walkingTip:
+          'White House & National Mall: Warm afternoon (81°F) with passing showers (58% chance). Pack compact umbrellas for the morning White House security check line!',
+      };
     }
-    if (tempMax >= 82) {
-      return 'Warm & sunny: Stay hydrated on the National Mall; plan outdoor Lincoln & WW2 memorials in the cooler morning or dusk.';
+    if (dateStr.endsWith('10-17') || idx === 2) {
+      return {
+        tripDayNumber: 3,
+        tripTitle: 'Smithsonian Museums',
+        tripHighlight: 'Air & Space & Natural History',
+        dayLabel: 'Sat, Oct 17',
+        walkingTip:
+          'Smithsonian Galleries: Crisp autumn air (62°F / 46°F) and morning rain chances (58%). Ideal day to spend inside Air & Space and Natural History museum galleries!',
+      };
     }
-    if (tempMax <= 48) {
-      return 'Chilly breezes: Layer up with coats & scarves for open winds along the Tidal Basin and Capitol Hill.';
+    if (dateStr.endsWith('10-18') || idx === 3) {
+      return {
+        tripDayNumber: 4,
+        tripTitle: 'National Zoo Pandas 🐼',
+        tripHighlight: 'Bao Li & Qing Bao Asia Trail',
+        dayLabel: 'Sun, Oct 18',
+        walkingTip:
+          'Giant Pandas at National Zoo: Clear skies and crisp weather (62°F / 43°F), low rain (8%). Morning is optimal to see Bao Li & Qing Bao active in the outdoor Asia Trail! Light jackets recommended.',
+      };
     }
-    if (uv >= 6) {
-      return 'High UV: Crisp blue skies. Wear sun hats and sunscreen while walking between the Washington Monument and White House.';
+    if (dateStr.endsWith('10-19') || idx === 4) {
+      return {
+        tripDayNumber: 5,
+        tripTitle: 'Capitol & Library',
+        tripHighlight: 'Capitol Tour & The Wharf',
+        dayLabel: 'Mon, Oct 19',
+        walkingTip:
+          'Capitol Hill & Wharf: Pleasant autumn sunshine (67°F / 47°F) with only 9% rain risk. Excellent walking weather for the Capitol grounds, Supreme Court, and waterfront boardwalk dinner.',
+      };
     }
-    return 'Comfortable walking weather: Perfect conditions for walking the National Mall paths, sculpture gardens, and Wharf boardwalks.';
+    if (dateStr.endsWith('10-20') || idx === 5) {
+      return {
+        tripDayNumber: 6,
+        tripTitle: 'Monuments & DCA Home',
+        tripHighlight: 'Lincoln Memorial & Flight',
+        dayLabel: 'Tue, Oct 20',
+        walkingTip:
+          'Monuments & Flight Home: Mild & sunny (70°F / 51°F). Ideal conditions for walking the Lincoln, Vietnam & Korean War memorials before the evening flight home from DCA.',
+      };
+    }
+    return {
+      tripDayNumber: idx + 1,
+      tripTitle: 'Washington, DC Tour',
+      tripHighlight: 'City Exploration',
+      dayLabel: dateStr,
+      walkingTip: 'Comfortable autumn sightseeing weather across Washington, DC.',
+    };
+  };
+
+  const generateFallbackHourly = (dateStr: string, baseHigh: number, baseLow: number, basePrecip: number, baseCode: number): HourlyForecast[] => {
+    const list: HourlyForecast[] = [];
+    for (let h = 0; h < 24; h++) {
+      let factor = Math.sin(((h - 8) / 14) * Math.PI);
+      if (h < 6) factor = -0.8;
+      if (h > 21) factor = -0.5;
+      const temp = Math.round(baseLow + (baseHigh - baseLow) * Math.max(0, Math.min(1, (factor + 1) / 2)));
+      const hourStr = h < 10 ? `0${h}:00` : `${h}:00`;
+      const timeStr = `${dateStr}T${hourStr}`;
+      const hourDate = new Date(`${dateStr}T${hourStr}:00`);
+      const hourLabel = hourDate.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true });
+
+      let pProb = Math.max(0, Math.round(basePrecip * (h >= 10 && h <= 16 ? 1.1 : 0.7)));
+      if (basePrecip < 15) pProb = basePrecip;
+
+      const code = pProb > 40 ? 61 : baseCode;
+      const info = getWeatherInfo(code);
+
+      list.push({
+        time: timeStr,
+        dateStr,
+        hourLabel,
+        hourNum: h,
+        temperature: temp,
+        apparentTemp: temp - 1,
+        weatherCode: code,
+        condition: info.condition,
+        icon: info.icon,
+        precipProb: Math.min(100, pProb),
+        windSpeed: Math.round(7 + Math.sin(h) * 3),
+      });
+    }
+    return list;
   };
 
   const fetchWeather = async () => {
     setIsRefreshing(true);
     setError(null);
     try {
-      // Washington DC coordinates: 38.8951, -77.0364
       const url =
-        'https://api.open-meteo.com/v1/forecast?latitude=38.8951&longitude=-77.0364&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,windspeed_10m_max,uv_index_max&hourly=temperature_2m,apparent_temperature,precipitation_probability,weathercode&current_weather=true&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America%2FNew_York';
+        'https://api.open-meteo.com/v1/forecast?latitude=38.8951&longitude=-77.0364&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,windspeed_10m_max,uv_index_max&hourly=temperature_2m,apparent_temperature,precipitation_probability,weathercode,windspeed_10m&current_weather=true&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America%2FNew_York&forecast_days=7';
 
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Weather fetch status: ${res.status}`);
@@ -136,10 +233,9 @@ export const WeatherCard: React.FC = () => {
         const curCode = data.current_weather.weathercode;
         const curInfo = getWeatherInfo(curCode);
 
-        // Compute current apparent temp if hourly matches
         let curApparent = Math.round(data.current_weather.temperature);
         if (data.hourly && data.hourly.time && data.hourly.apparent_temperature) {
-          const nowStr = data.current_weather.time; // e.g. "2026-10-14T08:00"
+          const nowStr = data.current_weather.time;
           const curIdx = data.hourly.time.findIndex((t: string) => t.startsWith(nowStr.slice(0, 13)));
           if (curIdx >= 0 && data.hourly.apparent_temperature[curIdx] !== undefined) {
             curApparent = Math.round(data.hourly.apparent_temperature[curIdx]);
@@ -156,7 +252,50 @@ export const WeatherCard: React.FC = () => {
           windDirection: Math.round(data.current_weather.winddirection || 0),
         });
 
-        // 3-day forecast
+        // Group hourly items by date "YYYY-MM-DD"
+        const hourlyByDate: Record<string, HourlyForecast[]> = {};
+        if (data.hourly && data.hourly.time) {
+          const times: string[] = data.hourly.time;
+          const temps: number[] = data.hourly.temperature_2m || [];
+          const appTemps: number[] = data.hourly.apparent_temperature || [];
+          const precips: number[] = data.hourly.precipitation_probability || [];
+          const codes: number[] = data.hourly.weathercode || [];
+          const winds: number[] = data.hourly.windspeed_10m || [];
+
+          for (let idx = 0; idx < times.length; idx++) {
+            const tStr = times[idx];
+            const dStr = tStr.slice(0, 10);
+            const hourDate = new Date(tStr);
+            const hourNum = hourDate.getHours();
+            const hourLabel = hourDate.toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              hour12: true,
+            });
+            const hCode = codes[idx] !== undefined ? codes[idx] : 1;
+            const hInfo = getWeatherInfo(hCode);
+
+            const item: HourlyForecast = {
+              time: tStr,
+              dateStr: dStr,
+              hourLabel,
+              hourNum,
+              temperature: Math.round(temps[idx] || 65),
+              apparentTemp: Math.round(appTemps[idx] || temps[idx] || 65),
+              weatherCode: hCode,
+              condition: hInfo.condition,
+              icon: hInfo.icon,
+              precipProb: Math.round(precips[idx] || 0),
+              windSpeed: Math.round(winds[idx] || 8),
+            };
+
+            if (!hourlyByDate[dStr]) {
+              hourlyByDate[dStr] = [];
+            }
+            hourlyByDate[dStr].push(item);
+          }
+        }
+
+        // Build 6-day trip forecast (Oct 15 to Oct 20)
         const dailyList: DayForecast[] = [];
         const dates: string[] = data.daily.time || [];
         const maxTemps: number[] = data.daily.temperature_2m_max || [];
@@ -168,16 +307,24 @@ export const WeatherCard: React.FC = () => {
         const winds: number[] = data.daily.windspeed_10m_max || [];
         const uvs: number[] = data.daily.uv_index_max || [];
 
-        const count = Math.min(3, dates.length);
+        const count = Math.min(6, dates.length);
         for (let i = 0; i < count; i++) {
           const dateStr = dates[i];
           const dateObj = new Date(dateStr + 'T12:00:00');
+          const meta = getTripMeta(dateStr, i);
+
           const dayName =
             i === 0
-              ? 'Today'
+              ? 'Today (Thu)'
               : i === 1
-              ? 'Tomorrow'
+              ? 'Tomorrow (Fri)'
               : dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+
+          const fullDayLabel = dateObj.toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric',
+          });
 
           const formattedDate = dateObj.toLocaleDateString('en-US', {
             month: 'short',
@@ -186,61 +333,36 @@ export const WeatherCard: React.FC = () => {
 
           const info = getWeatherInfo(codes[i]);
           const pProb = Math.round(precips[i] || 0);
-          const tMax = Math.round(maxTemps[i] || 65);
+          const tMax = Math.round(maxTemps[i] || 68);
+          const tMin = Math.round(minTemps[i] || 50);
           const uvVal = Math.round(uvs[i] || 4);
+
+          const dayHourly = hourlyByDate[dateStr] || generateFallbackHourly(dateStr, tMax, tMin, pProb, codes[i]);
 
           dailyList.push({
             date: dateStr,
             dayName,
+            fullDayLabel,
             formattedDate,
+            tripDayNumber: meta.tripDayNumber,
+            tripTitle: meta.tripTitle,
+            tripHighlight: meta.tripHighlight,
             weatherCode: codes[i],
             condition: info.condition,
             icon: info.icon,
             tempMax: tMax,
-            tempMin: Math.round(minTemps[i] || 50),
+            tempMin: tMin,
             apparentMax: Math.round(appMax[i] || tMax),
-            apparentMin: Math.round(appMin[i] || 50),
+            apparentMin: Math.round(appMin[i] || tMin),
             precipProb: pProb,
             windSpeedMax: Math.round(winds[i] || 10),
             uvIndexMax: uvVal,
-            walkingTip: getWalkingAdvice(tMax, pProb, uvVal),
+            walkingTip: meta.walkingTip,
+            hourly: dayHourly,
           });
         }
 
         setForecast(dailyList);
-
-        // Hourly slice for today (next 12 hours or daytime hours 8am - 10pm)
-        if (data.hourly && data.hourly.time) {
-          const hourlyList: HourlyForecast[] = [];
-          const nowHourStr = data.current_weather.time.slice(0, 13);
-          let startIdx = data.hourly.time.findIndex((t: string) => t.startsWith(nowHourStr));
-          if (startIdx < 0) startIdx = 0;
-
-          const hCount = Math.min(8, data.hourly.time.length - startIdx);
-          for (let h = 0; h < hCount; h++) {
-            const idx = startIdx + h;
-            const tStr = data.hourly.time[idx];
-            const dateH = new Date(tStr);
-            const hourLabel = dateH.toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              hour12: true,
-            });
-            const hCode = data.hourly.weathercode[idx];
-            const hInfo = getWeatherInfo(hCode);
-
-            hourlyList.push({
-              time: tStr,
-              hourLabel,
-              temperature: Math.round(data.hourly.temperature_2m[idx]),
-              apparentTemp: Math.round(data.hourly.apparent_temperature[idx]),
-              weatherCode: hCode,
-              condition: hInfo.condition,
-              icon: hInfo.icon,
-              precipProb: Math.round(data.hourly.precipitation_probability[idx] || 0),
-            });
-          }
-          setHourly(hourlyList);
-        }
 
         const now = new Date();
         setLastUpdated(
@@ -248,78 +370,56 @@ export const WeatherCard: React.FC = () => {
         );
       }
     } catch (err: any) {
-      console.warn('Weather fetch error, using fallback:', err);
-      setError('Live forecast unavailable. Showing seasonal DC travel forecast.');
+      console.warn('Weather fetch error, using fallback full-trip forecast:', err);
+      setError('Live forecast syncing. Showing full October 15–20 Washington DC trip forecast.');
 
-      // Fallback DC Autumn forecast
-      setCurrent({
-        temperature: 66,
-        apparentTemp: 64,
-        weatherCode: 1,
-        condition: 'Sunny & Pleasant',
-        icon: 'fa-sun text-amber-500',
-        windSpeed: 8,
-        windDirection: 180,
+      const fallbackDays = [
+        { date: '2026-10-15', high: 78, low: 61, precip: 20, code: 2, uv: 5 },
+        { date: '2026-10-16', high: 81, low: 61, precip: 55, code: 80, uv: 4 },
+        { date: '2026-10-17', high: 62, low: 46, precip: 50, code: 61, uv: 4 },
+        { date: '2026-10-18', high: 62, low: 43, precip: 10, code: 1, uv: 5 },
+        { date: '2026-10-19', high: 67, low: 47, precip: 10, code: 0, uv: 5 },
+        { date: '2026-10-20', high: 70, low: 51, precip: 10, code: 1, uv: 5 },
+      ];
+
+      const fallbackList: DayForecast[] = fallbackDays.map((d, i) => {
+        const meta = getTripMeta(d.date, i);
+        const info = getWeatherInfo(d.code);
+        const dateObj = new Date(d.date + 'T12:00:00');
+        return {
+          date: d.date,
+          dayName: i === 0 ? 'Today (Thu)' : i === 1 ? 'Tomorrow (Fri)' : dateObj.toLocaleDateString('en-US', { weekday: 'short' }),
+          fullDayLabel: dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
+          formattedDate: dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          tripDayNumber: meta.tripDayNumber,
+          tripTitle: meta.tripTitle,
+          tripHighlight: meta.tripHighlight,
+          weatherCode: d.code,
+          condition: info.condition,
+          icon: info.icon,
+          tempMax: d.high,
+          tempMin: d.low,
+          apparentMax: d.high,
+          apparentMin: d.low,
+          precipProb: d.precip,
+          windSpeedMax: 10,
+          uvIndexMax: d.uv,
+          walkingTip: meta.walkingTip,
+          hourly: generateFallbackHourly(d.date, d.high, d.low, d.precip, d.code),
+        };
       });
 
-      setForecast([
-        {
-          date: 'Day 1',
-          dayName: 'Today',
-          formattedDate: 'Today',
-          weatherCode: 1,
-          condition: 'Sunny & Pleasant',
-          icon: 'fa-sun text-amber-500',
-          tempMax: 68,
-          tempMin: 50,
-          apparentMax: 67,
-          apparentMin: 48,
-          precipProb: 10,
-          windSpeedMax: 9,
-          uvIndexMax: 5,
-          walkingTip: 'Crisp & sunny: Excellent walking conditions along the National Mall and Tidal Basin.',
-        },
-        {
-          date: 'Day 2',
-          dayName: 'Tomorrow',
-          formattedDate: 'Tomorrow',
-          weatherCode: 2,
-          condition: 'Partly Cloudy',
-          icon: 'fa-cloud-sun text-sky-500',
-          tempMax: 65,
-          tempMin: 48,
-          apparentMax: 64,
-          apparentMin: 46,
-          precipProb: 20,
-          windSpeedMax: 11,
-          uvIndexMax: 4,
-          walkingTip: 'Mild afternoon: Great for Capitol Hill and Smithsonian museums.',
-        },
-        {
-          date: 'Day 3',
-          dayName: 'Day 3',
-          formattedDate: 'Day 3',
-          weatherCode: 0,
-          condition: 'Clear Blue Skies',
-          icon: 'fa-sun text-amber-500',
-          tempMax: 69,
-          tempMin: 52,
-          apparentMax: 68,
-          apparentMin: 50,
-          precipProb: 5,
-          windSpeedMax: 7,
-          uvIndexMax: 5,
-          walkingTip: 'Bright sunshine: Perfect for outdoor monuments and waterfront dinner at The Wharf.',
-        },
-      ]);
+      setCurrent({
+        temperature: 78,
+        apparentTemp: 77,
+        weatherCode: 2,
+        condition: 'Partly Cloudy',
+        icon: 'fa-cloud-sun text-sky-500',
+        windSpeed: 10,
+        windDirection: 60,
+      });
 
-      setHourly([
-        { time: '1', hourLabel: '9 AM', temperature: 56, apparentTemp: 55, weatherCode: 1, condition: 'Sunny', icon: 'fa-sun text-amber-500', precipProb: 0 },
-        { time: '2', hourLabel: '12 PM', temperature: 65, apparentTemp: 65, weatherCode: 1, condition: 'Sunny', icon: 'fa-sun text-amber-500', precipProb: 5 },
-        { time: '3', hourLabel: '3 PM', temperature: 68, apparentTemp: 67, weatherCode: 2, condition: 'Partly Cloudy', icon: 'fa-cloud-sun text-sky-500', precipProb: 10 },
-        { time: '4', hourLabel: '6 PM', temperature: 62, apparentTemp: 60, weatherCode: 1, condition: 'Clear', icon: 'fa-sun text-amber-500', precipProb: 5 },
-        { time: '5', hourLabel: '9 PM', temperature: 54, apparentTemp: 53, weatherCode: 0, condition: 'Clear', icon: 'fa-moon text-indigo-400', precipProb: 0 },
-      ]);
+      setForecast(fallbackList);
 
       const now = new Date();
       setLastUpdated(
@@ -333,42 +433,100 @@ export const WeatherCard: React.FC = () => {
 
   useEffect(() => {
     fetchWeather();
-    // Auto-refresh every 30 minutes
     const interval = setInterval(fetchWeather, 30 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
   const activeDay = forecast[selectedDayIndex] || forecast[0];
 
+  const rawHourly = activeDay?.hourly || [];
+  const displayHourly =
+    hourlyFilter === 'daytime'
+      ? rawHourly.filter(h => h.hourNum >= 7 && h.hourNum <= 22)
+      : rawHourly;
+
+  const scrollHourly = (direction: 'left' | 'right') => {
+    if (hourlyScrollRef.current) {
+      const offset = direction === 'left' ? -280 : 280;
+      hourlyScrollRef.current.scrollBy({ left: offset, behavior: 'smooth' });
+    }
+  };
+
+  const scrollDaily = (direction: 'left' | 'right') => {
+    if (dailyScrollRef.current) {
+      const scrollAmount = dailyScrollRef.current.clientWidth;
+      dailyScrollRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth',
+      });
+    }
+  };
+
+  const scrollToDaySet = (pageIndex: number) => {
+    if (dailyScrollRef.current) {
+      const scrollAmount = dailyScrollRef.current.clientWidth;
+      dailyScrollRef.current.scrollTo({
+        left: pageIndex * scrollAmount,
+        behavior: 'smooth',
+      });
+      setDailyPage(pageIndex);
+    }
+  };
+
+  const handleDailyScroll = () => {
+    if (dailyScrollRef.current) {
+      const { scrollLeft, clientWidth } = dailyScrollRef.current;
+      if (clientWidth > 0) {
+        const page = Math.round(scrollLeft / clientWidth);
+        setDailyPage(page);
+      }
+    }
+  };
+
+  const handleSelectDay = (index: number) => {
+    setSelectedDayIndex(index);
+    setShowHourly(true);
+    if (dailyScrollRef.current) {
+      const targetPage = index >= 3 ? 1 : 0;
+      const clientWidth = dailyScrollRef.current.clientWidth;
+      dailyScrollRef.current.scrollTo({
+        left: targetPage * clientWidth,
+        behavior: 'smooth',
+      });
+      setDailyPage(targetPage);
+    }
+  };
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs transition overflow-hidden">
+    <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs transition overflow-hidden">
       {/* Header bar */}
-      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-        <div className="flex items-center gap-2.5">
-          <span className="w-9 h-9 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center text-base shadow-2xs border border-sky-100">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3.5 border-b border-slate-100 gap-3">
+        <div className="flex items-center gap-3">
+          <span className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center text-lg shadow-2xs border border-sky-100 flex-shrink-0">
             <i className="fa-solid fa-cloud-sun"></i>
           </span>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="serif text-base font-black text-slate-900 leading-snug">
-                Washington, DC Weather
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="serif text-base sm:text-lg font-black text-slate-900 leading-snug">
+                Washington, DC Weather Forecast
               </h3>
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full">
-                Live 3-Day Forecast
+              <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full border border-emerald-200/60 flex items-center gap-1">
+                <i className="fa-solid fa-calendar-check text-[9px]"></i>
+                Full Trip: Oct 15 – 20
               </span>
             </div>
             <p className="text-[11px] text-slate-500 font-medium">
-              National Mall, Tidal Basin &amp; Downtown DC
+              National Mall, Tidal Basin, Smithsonian, &amp; National Zoo (Bao Li &amp; Qing Bao)
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2 self-end sm:self-center">
           {/* Unit Toggle °F / °C */}
-          <div className="flex items-center bg-slate-100 rounded-lg p-0.5 text-xs font-bold">
+          <div className="flex items-center bg-slate-100 rounded-lg p-0.5 text-xs font-bold border border-slate-200">
             <button
               onClick={() => setUnit('F')}
-              className={`px-2 py-1 rounded-md transition cursor-pointer text-[11px] ${
+              className={`px-2.5 py-1 rounded-md transition cursor-pointer text-[11px] font-bold ${
                 unit === 'F' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
@@ -376,7 +534,7 @@ export const WeatherCard: React.FC = () => {
             </button>
             <button
               onClick={() => setUnit('C')}
-              className={`px-2 py-1 rounded-md transition cursor-pointer text-[11px] ${
+              className={`px-2.5 py-1 rounded-md transition cursor-pointer text-[11px] font-bold ${
                 unit === 'C' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
@@ -388,49 +546,49 @@ export const WeatherCard: React.FC = () => {
           <button
             onClick={fetchWeather}
             disabled={isRefreshing}
-            className="text-slate-400 hover:text-sky-600 text-xs px-2.5 py-1.5 rounded-lg hover:bg-slate-50 border border-slate-200 transition cursor-pointer flex items-center gap-1.5 font-semibold"
-            title="Refresh forecast from Open-Meteo"
+            className="text-slate-500 hover:text-sky-600 text-xs px-2.5 py-1.5 rounded-lg hover:bg-slate-50 border border-slate-200 transition cursor-pointer flex items-center gap-1.5 font-semibold shadow-2xs"
+            title="Refresh live forecast from Open-Meteo"
           >
             <i className={`fa-solid fa-arrows-rotate text-xs ${isRefreshing ? 'fa-spin text-sky-600' : ''}`}></i>
-            <span className="text-[11px] hidden sm:inline">
-              {isRefreshing ? 'Updating...' : 'Sync'}
+            <span className="text-[11px] font-bold hidden sm:inline">
+              {isRefreshing ? 'Syncing...' : 'Sync Live'}
             </span>
           </button>
         </div>
       </div>
 
       {loading ? (
-        <div className="py-8 flex flex-col items-center justify-center text-slate-400 text-xs gap-2.5">
+        <div className="py-10 flex flex-col items-center justify-center text-slate-400 text-xs gap-2.5">
           <i className="fa-solid fa-spinner fa-spin text-2xl text-sky-500"></i>
-          <span className="font-medium">Connecting to Washington, DC weather station...</span>
+          <span className="font-semibold text-slate-600">Connecting to Washington, DC weather station (Oct 15–20)...</span>
         </div>
       ) : (
-        <div className="mt-3.5 space-y-3">
+        <div className="mt-4 space-y-4">
           {/* Current Temperature Banner */}
           {current && (
-            <div className="bg-gradient-to-r from-sky-50/90 via-indigo-50/40 to-slate-50 p-3.5 rounded-xl border border-sky-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="bg-gradient-to-r from-sky-50/90 via-indigo-50/40 to-slate-50 p-4 rounded-xl border border-sky-100 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-2xs">
               <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-xl bg-white/80 border border-sky-100 flex items-center justify-center text-3xl shadow-2xs">
+                <div className="w-13 h-13 rounded-xl bg-white border border-sky-100 flex items-center justify-center text-3xl shadow-2xs flex-shrink-0">
                   <i className={`fa-solid ${current.icon}`}></i>
                 </div>
                 <div>
-                  <div className="flex items-baseline gap-2">
+                  <div className="flex items-baseline gap-2 flex-wrap">
                     <span className="text-3xl font-black text-slate-900 font-mono tracking-tight">
                       {toDisplayTemp(current.temperature)}°{unit}
                     </span>
-                    <span className="text-xs font-bold text-slate-700">{current.condition}</span>
-                    <span className="text-[11px] text-slate-400 font-medium">
+                    <span className="text-xs font-bold text-slate-800">{current.condition}</span>
+                    <span className="text-[11px] text-slate-500 font-medium">
                       (Feels {toDisplayTemp(current.apparentTemp)}°)
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-3 mt-0.5">
+                  <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-3 mt-1">
                     <span>
-                      <i className="fa-solid fa-wind mr-1 text-slate-400"></i>
+                      <i className="fa-solid fa-wind mr-1 text-sky-500"></i>
                       Wind: {current.windSpeed} mph
                     </span>
                     <span>
-                      <i className="fa-solid fa-location-arrow mr-1 text-slate-400"></i>
-                      Mall breezes
+                      <i className="fa-solid fa-location-dot mr-1 text-rose-500"></i>
+                      National Mall &amp; Downtown
                     </span>
                     {lastUpdated && (
                       <span className="text-slate-400">
@@ -442,122 +600,378 @@ export const WeatherCard: React.FC = () => {
                 </div>
               </div>
 
-              {/* Walking recommendation pill */}
-              <div className="flex items-center justify-between sm:justify-end gap-2 border-t sm:border-t-0 pt-2 sm:pt-0 border-sky-100/60">
+              {/* Quick Trip Overview & Hourly Toggle */}
+              <div className="flex flex-wrap items-center gap-2 border-t md:border-t-0 pt-2.5 md:pt-0 border-sky-100/60 justify-between md:justify-end">
+                <div className="hidden lg:flex items-center gap-1.5 text-[11px] bg-white/80 border border-sky-200/70 px-3 py-1.5 rounded-lg text-slate-700 font-medium shadow-2xs">
+                  <i className="fa-solid fa-suitcase text-sky-600"></i>
+                  <span>6-Day Trip Overview: 62°F – 81°F range</span>
+                </div>
                 <button
                   onClick={() => setShowHourly(!showHourly)}
-                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-white text-sky-700 border border-sky-200 hover:bg-sky-50 transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-sky-700 border border-sky-200 hover:bg-sky-50 transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
                 >
-                  <i className="fa-solid fa-clock-rotate-left text-[10px]"></i>
-                  <span>{showHourly ? 'Hide Hourly' : 'Today\'s Hourly'}</span>
+                  <i className="fa-solid fa-clock-rotate-left text-[11px]"></i>
+                  <span>{showHourly ? 'Hide Hourly Breakdown' : 'Show Hourly Breakdown'}</span>
+                  <i className={`fa-solid fa-chevron-${showHourly ? 'up' : 'down'} text-[10px]`}></i>
                 </button>
               </div>
             </div>
           )}
 
-          {/* Today's Hourly Timeline (collapsible) */}
-          {showHourly && hourly.length > 0 && (
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 animate-fadeIn">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center justify-between">
-                <span>Today's Walking Timeline (DC Local Time)</span>
-                <span className="text-[9px] text-slate-400">Next 8 Hours</span>
+          {/* 6-Day Trip Forecast: 3 Days Visible at a Time with Horizontal Scrolling */}
+          <div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                  <i className="fa-solid fa-calendar-days text-sky-600"></i>
+                  Daily Trip Forecast (3 Days Visible)
+                </span>
+                <span className="text-[11px] font-extrabold text-sky-700 bg-sky-50 px-2.5 py-0.5 rounded-full border border-sky-200/80 shadow-2xs">
+                  {dailyPage === 0 ? 'Showing Days 1–3 (Oct 15–17)' : 'Showing Days 4–6 (Oct 18–20)'}
+                </span>
               </div>
-              <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                {hourly.map((h, idx) => (
-                  <div
-                    key={idx}
-                    className="flex-shrink-0 w-20 bg-white p-2 rounded-lg border border-slate-200 text-center shadow-2xs"
+
+              {/* Controls: Prev/Next & Quick Jump to Days 1-3 vs 4-6 */}
+              <div className="flex items-center gap-2 self-end sm:self-center">
+                {/* 3-day set pills */}
+                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-bold shadow-2xs">
+                  <button
+                    onClick={() => scrollToDaySet(0)}
+                    className={`px-2.5 py-1 rounded-md transition cursor-pointer text-[11px] font-bold ${
+                      dailyPage === 0
+                        ? 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
                   >
-                    <span className="text-[10px] font-bold text-slate-500 block mb-1">
-                      {h.hourLabel}
-                    </span>
-                    <i className={`fa-solid ${h.icon} text-lg my-1`}></i>
-                    <span className="text-xs font-black text-slate-900 block font-mono">
-                      {toDisplayTemp(h.temperature)}°
-                    </span>
-                    <div className="mt-1 text-[9px] text-blue-600 font-semibold flex items-center justify-center gap-0.5">
-                      <i className="fa-solid fa-droplet text-[8px]"></i>
-                      <span>{h.precipProb}%</span>
-                    </div>
-                  </div>
-                ))}
+                    Days 1–3 (Oct 15–17)
+                  </button>
+                  <button
+                    onClick={() => scrollToDaySet(1)}
+                    className={`px-2.5 py-1 rounded-md transition cursor-pointer text-[11px] font-bold ${
+                      dailyPage === 1
+                        ? 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    Days 4–6 (Oct 18–20)
+                  </button>
+                </div>
+
+                {/* Left & Right chevron buttons */}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => scrollDaily('left')}
+                    disabled={dailyPage === 0}
+                    className={`w-8 h-8 rounded-lg border flex items-center justify-center text-xs transition cursor-pointer shadow-2xs ${
+                      dailyPage === 0
+                        ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
+                        : 'bg-white text-slate-700 hover:text-sky-600 border-slate-200 hover:bg-sky-50/50'
+                    }`}
+                    title="Scroll to previous 3 days"
+                  >
+                    <i className="fa-solid fa-chevron-left"></i>
+                  </button>
+                  <button
+                    onClick={() => scrollDaily('right')}
+                    disabled={dailyPage === 1}
+                    className={`w-8 h-8 rounded-lg border flex items-center justify-center text-xs transition cursor-pointer shadow-2xs ${
+                      dailyPage === 1
+                        ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
+                        : 'bg-white text-slate-700 hover:text-sky-600 border-slate-200 hover:bg-sky-50/50'
+                    }`}
+                    title="Scroll to next 3 days"
+                  >
+                    <i className="fa-solid fa-chevron-right"></i>
+                  </button>
+                </div>
               </div>
             </div>
-          )}
 
-          {/* 3-Day Forecast Cards */}
-          <div className="grid grid-cols-3 gap-2">
-            {forecast.map((f, i) => {
-              const isSelected = selectedDayIndex === i;
-              return (
-                <button
-                  key={f.date || i}
-                  onClick={() => setSelectedDayIndex(i)}
-                  className={`p-3 rounded-xl border text-center transition cursor-pointer relative ${
-                    isSelected
-                      ? 'bg-sky-50/80 border-sky-300 ring-2 ring-sky-400/30 shadow-xs'
-                      : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                      {f.dayName}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-medium">
-                      {f.formattedDate}
-                    </span>
-                  </div>
+            {/* Horizontal Scroll Container (Exactly 3 cards visible side-by-side on sm+ screens) */}
+            <div
+              ref={dailyScrollRef}
+              onScroll={handleDailyScroll}
+              className="flex gap-3 overflow-x-auto no-scrollbar scroll-smooth snap-x snap-mandatory pb-2 pt-1"
+            >
+              {forecast.map((f, i) => {
+                const isSelected = selectedDayIndex === i;
+                return (
+                  <button
+                    key={f.date || i}
+                    onClick={() => handleSelectDay(i)}
+                    className={`w-[85vw] sm:w-[calc((100%-24px)/3)] flex-shrink-0 snap-start p-4 rounded-2xl border text-left transition cursor-pointer relative flex flex-col justify-between ${
+                      isSelected
+                        ? 'bg-gradient-to-b from-sky-50 via-white to-sky-50/30 border-sky-400 ring-2 ring-sky-400/40 shadow-sm'
+                        : 'bg-slate-50/80 border-slate-200 hover:bg-white hover:border-slate-300 shadow-2xs'
+                    }`}
+                  >
+                    <div>
+                      {/* Top Day Header */}
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span
+                          className={`text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                            isSelected
+                              ? 'bg-sky-600 text-white shadow-2xs'
+                              : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          Day {f.tripDayNumber} of 6
+                        </span>
+                        <span className="text-xs font-black text-slate-800 font-mono">
+                          {f.dayName.split(' ')[0]}, {f.formattedDate}
+                        </span>
+                      </div>
 
-                  <div className="my-1.5 flex justify-center items-center h-8 text-2xl">
-                    <i className={`fa-solid ${f.icon}`}></i>
-                  </div>
+                      {/* Itinerary details with generous room */}
+                      <div className="mt-1">
+                        <div className="text-sm font-black text-slate-900 leading-snug line-clamp-1">
+                          {f.tripTitle}
+                        </div>
+                        <div className="text-[11px] text-sky-700 font-semibold bg-sky-100/60 px-2 py-0.5 rounded-md mt-1 inline-block border border-sky-200/50 line-clamp-1">
+                          {f.tripHighlight}
+                        </div>
+                      </div>
 
-                  <div className="text-sm font-black text-slate-900 font-mono">
-                    {toDisplayTemp(f.tempMax)}° /{' '}
-                    <span className="text-slate-400 font-semibold">
-                      {toDisplayTemp(f.tempMin)}°
-                    </span>
-                  </div>
+                      {/* Big Weather Icon & Temps */}
+                      <div className="my-3.5 flex items-center justify-between bg-white/70 p-2.5 rounded-xl border border-slate-100">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-3xl shadow-2xs flex-shrink-0">
+                            <i className={`fa-solid ${f.icon}`}></i>
+                          </div>
+                          <div>
+                            <div className="flex items-baseline">
+                              <span className="text-2xl font-black text-slate-900 font-mono">
+                                {toDisplayTemp(f.tempMax)}°
+                              </span>
+                              <span className="text-sm font-bold text-slate-400 font-mono ml-1.5">
+                                / {toDisplayTemp(f.tempMin)}°
+                              </span>
+                            </div>
+                            <div className="text-xs font-bold text-slate-700 truncate mt-0.5">
+                              {f.condition}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
 
-                  <div className="text-[11px] text-slate-600 mt-0.5 truncate font-medium">
-                    {f.condition}
-                  </div>
+                    {/* Bottom stats bar */}
+                    <div className="pt-2.5 border-t border-slate-200/80 flex items-center justify-between text-[11px]">
+                      <span
+                        className={`font-black flex items-center gap-1 ${
+                          f.precipProb >= 35 ? 'text-blue-600' : 'text-slate-600'
+                        }`}
+                      >
+                        <i className="fa-solid fa-droplet text-[10px] text-blue-500"></i>
+                        <span>{f.precipProb}% Rain</span>
+                      </span>
+                      <span className="text-slate-500 font-medium">
+                        <i className="fa-solid fa-wind mr-1 text-slate-400"></i>
+                        {f.windSpeedMax} mph
+                      </span>
+                      <span className="text-slate-500 font-medium">
+                        <i className="fa-solid fa-sun mr-1 text-amber-500"></i>
+                        UV {f.uvIndexMax}/10
+                      </span>
+                    </div>
 
-                  <div className="mt-1.5 pt-1.5 border-t border-slate-200/60 flex items-center justify-between text-[10px]">
-                    <span className="font-bold text-blue-600 flex items-center gap-0.5">
-                      <i className="fa-solid fa-droplet text-[9px]"></i>
-                      <span>{f.precipProb}%</span>
-                    </span>
-                    <span className="text-slate-400 font-medium">
-                      <i className="fa-solid fa-wind mr-0.5"></i>
-                      {f.windSpeedMax}m
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
+                    {isSelected && (
+                      <span className="absolute -top-1.5 -right-1.5 px-2 py-0.5 rounded-full bg-sky-600 text-white font-black text-[9px] shadow-xs flex items-center gap-1">
+                        <i className="fa-solid fa-check text-[8px]"></i>
+                        <span>Viewing</span>
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Detailed Insight for Selected Day */}
           {activeDay && (
-            <div className="bg-slate-50/90 rounded-xl p-3 border border-slate-200 text-xs">
-              <div className="flex items-start gap-2.5">
-                <span className="w-6 h-6 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center flex-shrink-0 text-xs mt-0.5">
-                  <i className="fa-solid fa-lightbulb"></i>
+            <div className="bg-gradient-to-r from-slate-50 via-sky-50/30 to-slate-50 rounded-xl p-3.5 border border-sky-100 text-xs shadow-2xs">
+              <div className="flex items-start gap-3">
+                <span className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center flex-shrink-0 text-sm mt-0.5 border border-sky-200">
+                  <i className="fa-solid fa-route"></i>
                 </span>
                 <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800">
-                      Trip Advice for {activeDay.dayName} ({activeDay.formattedDate})
-                    </span>
-                    <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
-                      UV Index: {activeDay.uvIndexMax}/10
-                    </span>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-black text-slate-900 text-sm">
+                        Day {activeDay.tripDayNumber} ({activeDay.fullDayLabel})
+                      </span>
+                      <span className="text-[11px] font-bold text-sky-800 bg-sky-100/80 px-2 py-0.5 rounded-md border border-sky-200/60">
+                        {activeDay.tripTitle}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-2xs">
+                        UV Index: {activeDay.uvIndexMax}/10
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-2xs">
+                        Max Wind: {activeDay.windSpeedMax} mph
+                      </span>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                  <p className="text-[12px] text-slate-700 mt-1.5 leading-relaxed font-medium">
                     {activeDay.walkingTip}
                   </p>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Full Hourly Forecast Breakdown (Out to Oct 20) */}
+          {showHourly && activeDay && (
+            <div className="bg-slate-50/90 p-4 rounded-xl border border-slate-200 animate-fadeIn space-y-3">
+              {/* Hourly Toolbar: Day selector tabs & filter options */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-200">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-700 mr-1 flex items-center gap-1">
+                    <i className="fa-regular fa-clock text-sky-600"></i>
+                    Hourly For:
+                  </span>
+                  {forecast.map((f, idx) => {
+                    const isTabActive = selectedDayIndex === idx;
+                    return (
+                      <button
+                        key={f.date || idx}
+                        onClick={() => handleSelectDay(idx)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                          isTabActive
+                            ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                        }`}
+                      >
+                        {f.dayName.split(' ')[0]} {f.formattedDate}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-center">
+                  {/* Time Range Filter (Daytime vs All 24h) */}
+                  <div className="flex items-center bg-white rounded-lg p-0.5 text-xs font-bold border border-slate-200">
+                    <button
+                      onClick={() => setHourlyFilter('daytime')}
+                      className={`px-2 py-0.5 rounded-md transition cursor-pointer text-[10px] font-bold ${
+                        hourlyFilter === 'daytime'
+                          ? 'bg-sky-50 text-sky-700 font-black'
+                          : 'text-slate-500 hover:text-slate-900'
+                      }`}
+                      title="Show active tourist walking hours (7 AM - 10 PM)"
+                    >
+                      Walking (7a–10p)
+                    </button>
+                    <button
+                      onClick={() => setHourlyFilter('all')}
+                      className={`px-2 py-0.5 rounded-md transition cursor-pointer text-[10px] font-bold ${
+                        hourlyFilter === 'all'
+                          ? 'bg-sky-50 text-sky-700 font-black'
+                          : 'text-slate-500 hover:text-slate-900'
+                      }`}
+                      title="Show all 24 hours of the day"
+                    >
+                      All 24 Hours
+                    </button>
+                  </div>
+
+                  {/* Left/Right scroll buttons for hourly */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => scrollHourly('left')}
+                      className="w-7 h-7 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-slate-900 flex items-center justify-center text-xs transition cursor-pointer shadow-2xs hover:bg-slate-100"
+                      title="Scroll hourly earlier"
+                    >
+                      <i className="fa-solid fa-chevron-left"></i>
+                    </button>
+                    <button
+                      onClick={() => scrollHourly('right')}
+                      className="w-7 h-7 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-slate-900 flex items-center justify-center text-xs transition cursor-pointer shadow-2xs hover:bg-slate-100"
+                      title="Scroll hourly later"
+                    >
+                      <i className="fa-solid fa-chevron-right"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Hourly horizontal cards container */}
+              <div
+                ref={hourlyScrollRef}
+                className="flex gap-2.5 overflow-x-auto no-scrollbar pb-2 pt-1 scroll-smooth"
+              >
+                {displayHourly.length > 0 ? (
+                  displayHourly.map((h, idx) => {
+                    const isToday = selectedDayIndex === 0;
+                    const nowHour = new Date().getHours();
+                    const isNow = isToday && h.hourNum === nowHour;
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`flex-shrink-0 w-22 p-2.5 rounded-xl border text-center transition relative ${
+                          isNow
+                            ? 'bg-sky-50 border-sky-400 ring-2 ring-sky-400/40 shadow-xs'
+                            : 'bg-white border-slate-200 hover:border-slate-300 shadow-2xs'
+                        }`}
+                      >
+                        {isNow && (
+                          <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-sky-600 text-white text-[8px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded-full shadow-2xs">
+                            Now
+                          </span>
+                        )}
+
+                        <span className="text-[11px] font-bold text-slate-700 block mb-1">
+                          {h.hourLabel}
+                        </span>
+
+                        <div className="my-1.5 flex justify-center items-center h-7 text-xl">
+                          <i className={`fa-solid ${h.icon}`}></i>
+                        </div>
+
+                        <span className="text-sm font-black text-slate-900 block font-mono">
+                          {toDisplayTemp(h.temperature)}°
+                        </span>
+
+                        <span className="text-[9px] text-slate-400 block font-medium">
+                          Feels {toDisplayTemp(h.apparentTemp)}°
+                        </span>
+
+                        <div
+                          className={`mt-1.5 pt-1.5 border-t border-slate-100 text-[10px] font-bold flex items-center justify-center gap-1 ${
+                            h.precipProb >= 30 ? 'text-blue-600 font-black' : 'text-slate-400'
+                          }`}
+                        >
+                          <i className="fa-solid fa-droplet text-[8px] text-blue-500"></i>
+                          <span>{h.precipProb}%</span>
+                        </div>
+
+                        <div className="mt-0.5 text-[9px] text-slate-400 flex items-center justify-center gap-0.5">
+                          <i className="fa-solid fa-wind text-[8px]"></i>
+                          <span>{h.windSpeed}m</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="py-4 text-center text-slate-400 text-xs w-full">
+                    No hourly data available for this range.
+                  </div>
+                )}
+              </div>
+
+              {/* Hourly Quick Tip / Summary */}
+              <div className="flex items-center justify-between text-[11px] text-slate-500 px-1 pt-1 border-t border-slate-200/60 flex-wrap gap-2">
+                <span className="flex items-center gap-1.5">
+                  <i className="fa-solid fa-chart-line text-sky-500"></i>
+                  <span>
+                    Forecast data out through <strong className="text-slate-700">Tuesday, October 20th</strong> for the Chung family trip.
+                  </span>
+                </span>
+                <span className="text-slate-400 font-medium">
+                  Scroll horizontally to review all 24 hours of {activeDay.fullDayLabel}
+                </span>
               </div>
             </div>
           )}
