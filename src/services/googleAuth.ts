@@ -7,17 +7,7 @@ import {
   User,
   signOut,
 } from 'firebase/auth';
-import localConfig from '../../firebase-applet-config.json';
-
-// Support VITE_ environment variables with fallback to local configuration
-const firebaseConfig = {
-  apiKey: (import.meta.env.VITE_FIREBASE_API_KEY as string) || localConfig?.apiKey || '',
-  authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string) || localConfig?.authDomain || '',
-  projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID as string) || localConfig?.projectId || '',
-  storageBucket: (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string) || localConfig?.storageBucket || '',
-  messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string) || localConfig?.messagingSenderId || '',
-  appId: (import.meta.env.VITE_FIREBASE_APP_ID as string) || localConfig?.appId || '',
-};
+import { firebaseConfig } from '../config/firebaseConfig';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
