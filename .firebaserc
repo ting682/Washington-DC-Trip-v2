@@ -1,14 +1,5 @@
 {
   "projects": {
     "default": "gen-lang-client-0586063899"
-  },
-  "targets": {
-    "gen-lang-client-0586063899": {
-      "hosting": {
-        "chung-family-washington-trip-2026": [
-          "chung-family-washington-trip-2026"
-        ]
-      }
-    }
   }
 }
