@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { PandaLeaderboard } from './PandaLeaderboard';
 import { sounds } from './audioEffects';
 
-type SnackType = 'bamboo' | 'apple' | 'carrot' | 'grape' | 'bomb' | 'rainbow';
+type SnackType = 'bamboo' | 'apple' | 'carrot' | 'grape' | 'rainbow';
 
 interface Bubble {
   r: number;
@@ -32,7 +32,6 @@ const SNACK_ICONS: Record<SnackType, string> = {
   apple: '🍎',
   carrot: '🥕',
   grape: '🍇',
-  bomb: '💣',
   rainbow: '🌈',
 };
 
@@ -41,36 +40,42 @@ const SNACK_COLORS: Record<SnackType, string> = {
   apple: '#ef4444',
   carrot: '#f97316',
   grape: '#8b5cf6',
-  bomb: '#1f2937',
   rainbow: '#ec4899',
 };
 
 const REGULAR_TYPES: SnackType[] = ['bamboo', 'apple', 'carrot', 'grape'];
 
-// Grid Geometry Constants
-const COLS = 8;
+// Grid Geometry Constants - Full Canvas 400px Span
+const COLS = 10;
 const BUBBLE_RADIUS = 20;
 const BUBBLE_DIAMETER = BUBBLE_RADIUS * 2;
-const ROW_HEIGHT = BUBBLE_DIAMETER * 0.866; // 2R * sin(60°)
-const START_Y = 28;
-const WALL_LEFT = BUBBLE_RADIUS + 4;
-const WALL_RIGHT = 400 - BUBBLE_RADIUS - 4;
-const CEILING_Y = BUBBLE_RADIUS + 8;
-const SLING_X = 200;
-const SLING_Y = 346;
+const ROW_HEIGHT = 34.64; // 2R * sin(60°)
+const START_Y = 24;
+const CEILING_Y = 24;
+const WALL_LEFT = BUBBLE_RADIUS; // 20
+const WALL_RIGHT = 400 - BUBBLE_RADIUS; // 380
+const LAUNCH_X = 200;
+const LAUNCH_Y = 344;
+const MAX_ROWS = 12;
+const DANGER_ROW = 8;
+
+// Synchronized Physics Constants (identically shared by raycast aimer & flying bullet)
+const BULLET_SPEED = 12;
+const SUB_STEPS = 6;
+const STEP_SIZE = BULLET_SPEED / SUB_STEPS; // 2.0 pixels per step
+const COLLISION_DIST = BUBBLE_RADIUS * 2 * 0.94; // 37.6px contact distance
 
 // Helper to calculate exact center (x, y) for cell (r, c)
 function getCellCenter(r: number, c: number): Point {
   const isOdd = r % 2 !== 0;
-  // Offset rows so grid is centered on 400px canvas
-  const offsetX = isOdd ? 40 + BUBBLE_RADIUS * 2 : 40 + BUBBLE_RADIUS;
+  const offsetX = isOdd ? BUBBLE_RADIUS * 2 : BUBBLE_RADIUS;
   return {
     x: offsetX + c * BUBBLE_DIAMETER,
     y: START_Y + r * ROW_HEIGHT,
   };
 }
 
-// 6 Hexagonal neighbors in horizontal layout
+// 6 Hexagonal neighbors in horizontal close-packed grid
 function getHexNeighbors(r: number, c: number): { r: number; c: number }[] {
   const isOdd = r % 2 !== 0;
   if (isOdd) {
@@ -101,6 +106,7 @@ export const PandaBubbleSlinger: React.FC = () => {
   const [shotsLeft, setShotsLeft] = useState(30);
   const [gameRunning, setGameRunning] = useState(false);
   const [gameOver, setGameOver] = useState(false);
+  const [isVictory, setIsVictory] = useState(false);
   const [latestScore, setLatestScore] = useState<number | null>(null);
 
   const gridRef = useRef<(Bubble | null)[][]>([]);
@@ -112,8 +118,8 @@ export const PandaBubbleSlinger: React.FC = () => {
     type: SnackType;
     active: boolean;
   }>({
-    x: SLING_X,
-    y: SLING_Y,
+    x: LAUNCH_X,
+    y: LAUNCH_Y,
     vx: 0,
     vy: 0,
     type: 'bamboo',
@@ -122,16 +128,37 @@ export const PandaBubbleSlinger: React.FC = () => {
 
   const nextBulletTypeRef = useRef<SnackType>('apple');
   const aimAngleRef = useRef(-Math.PI / 2);
-  const isAimingRef = useRef(false);
   const animIdRef = useRef<number | null>(null);
   const scoreRef = useRef(0);
+  const shotsLeftRef = useRef(30);
   const fallingBubblesRef = useRef<FallingBubble[]>([]);
+  const bulletFlightFramesRef = useRef(0);
+
+  // Get list of snack colors currently remaining in the grid
+  const getRemainingSnackTypes = (): SnackType[] => {
+    const types = new Set<SnackType>();
+    gridRef.current.forEach(row => {
+      row?.forEach(b => {
+        if (b && b.type !== 'rainbow') {
+          types.add(b.type);
+        }
+      });
+    });
+    return types.size > 0 ? Array.from(types) : REGULAR_TYPES;
+  };
+
+  const pickNextBulletType = (): SnackType => {
+    const available = getRemainingSnackTypes();
+    // 6% chance of bonus rainbow wild snack
+    if (Math.random() < 0.06) return 'rainbow';
+    return available[Math.floor(Math.random() * available.length)];
+  };
 
   const initGrid = (isEasy: boolean, isHard: boolean) => {
     const grid: (Bubble | null)[][] = [];
     const initialRows = isEasy ? 4 : isHard ? 6 : 5;
 
-    for (let r = 0; r < 12; r++) {
+    for (let r = 0; r < MAX_ROWS; r++) {
       grid[r] = [];
       const colsInRow = r % 2 === 0 ? COLS : COLS - 1;
 
@@ -140,7 +167,6 @@ export const PandaBubbleSlinger: React.FC = () => {
           const rand = Math.random();
           let type: SnackType;
           if (rand > 0.96) type = 'rainbow';
-          else if (rand > 0.92) type = 'bomb';
           else type = REGULAR_TYPES[Math.floor(Math.random() * REGULAR_TYPES.length)];
 
           const center = getCellCenter(r, c);
@@ -159,154 +185,125 @@ export const PandaBubbleSlinger: React.FC = () => {
     return grid;
   };
 
+  // Universal attachment snapping: Finds the closest valid attached cell to the impact point
   const getSnapCell = (
-    hitBubble: Bubble | null,
+    _hitBubble: Bubble | null,
     impactX: number,
     impactY: number
   ): { r: number; c: number; x: number; y: number } => {
     const grid = gridRef.current;
-    let targetR = 0;
-    let targetC = 0;
+    let bestR = 0;
+    let bestC = 0;
+    let minD = Infinity;
 
-    if (hitBubble === null) {
-      let bestC = 0;
-      let minD = Infinity;
-      for (let c = 0; c < COLS; c++) {
-        if (!grid[0]?.[c]) {
-          const center = getCellCenter(0, c);
-          const d = Math.abs(center.x - impactX);
-          if (d < minD) {
-            minD = d;
-            bestC = c;
-          }
-        }
-      }
-      targetR = 0;
-      targetC = bestC;
-    } else {
-      const neighbors = getHexNeighbors(hitBubble.r, hitBubble.c);
-      let bestNeighbor: { r: number; c: number } | null = null;
-      let minD = Infinity;
-
-      neighbors.forEach(n => {
-        if (
-          n.r >= 0 &&
-          n.r < 12 &&
-          n.c >= 0 &&
-          n.c < (n.r % 2 === 0 ? COLS : COLS - 1) &&
-          !grid[n.r]?.[n.c]
-        ) {
-          const center = getCellCenter(n.r, n.c);
-          const d = Math.hypot(center.x - impactX, center.y - impactY);
-          if (d < minD) {
-            minD = d;
-            bestNeighbor = n;
-          }
-        }
-      });
-
-      if (bestNeighbor) {
-        targetR = bestNeighbor.r;
-        targetC = bestNeighbor.c;
-      } else {
-        let bestDist = Infinity;
-        for (let r = 0; r < 12; r++) {
-          const colsInRow = r % 2 === 0 ? COLS : COLS - 1;
-          for (let c = 0; c < colsInRow; c++) {
-            if (!grid[r]?.[c]) {
-              const center = getCellCenter(r, c);
-              const d = Math.hypot(center.x - impactX, center.y - impactY);
-              if (d < bestDist) {
-                bestDist = d;
-                targetR = r;
-                targetC = c;
+    // Check all cells to find valid attached empty cells
+    for (let r = 0; r < MAX_ROWS; r++) {
+      const colsInRow = r % 2 === 0 ? COLS : COLS - 1;
+      for (let c = 0; c < colsInRow; c++) {
+        if (!grid[r]?.[c]) {
+          // A cell is valid if it is in row 0 (anchored to ceiling) OR adjacent to an existing bubble
+          let isAttached = r === 0;
+          if (!isAttached) {
+            const neighbors = getHexNeighbors(r, c);
+            for (const n of neighbors) {
+              const nCols = n.r % 2 === 0 ? COLS : COLS - 1;
+              if (n.r >= 0 && n.r < MAX_ROWS && n.c >= 0 && n.c < nCols) {
+                if (grid[n.r]?.[n.c]) {
+                  isAttached = true;
+                  break;
+                }
               }
+            }
+          }
+
+          if (isAttached) {
+            const center = getCellCenter(r, c);
+            const d = Math.hypot(center.x - impactX, center.y - impactY);
+            if (d < minD) {
+              minD = d;
+              bestR = r;
+              bestC = c;
             }
           }
         }
       }
     }
 
-    const center = getCellCenter(targetR, targetC);
-    return { r: targetR, c: targetC, x: center.x, y: center.y };
+    const center = getCellCenter(bestR, bestC);
+    return { r: bestR, c: bestC, x: center.x, y: center.y };
   };
 
-  // Raycast with wall reflection angle and snap prediction
+  // Raycast with wall reflection angle and exact snap prediction
+  // Uses IDENTICAL constants, step size, and collision checks as the real bullet physics
   const computeAimTrajectory = (angle: number): { points: Point[]; targetGhost?: Point } => {
-    const points: Point[] = [{ x: SLING_X, y: SLING_Y }];
-    let curX = SLING_X;
-    let curY = SLING_Y;
-    let vx = Math.cos(angle);
-    let vy = Math.sin(angle);
+    const points: Point[] = [{ x: LAUNCH_X, y: LAUNCH_Y }];
+    let curX = LAUNCH_X;
+    let curY = LAUNCH_Y;
+    let vx = Math.cos(angle) * STEP_SIZE;
+    let vy = Math.sin(angle) * STEP_SIZE;
     let targetGhost: Point | undefined = undefined;
 
-    // Up to 2 wall bounces
-    let maxDistance = 750;
-    for (let bounce = 0; bounce < 3 && maxDistance > 0; bounce++) {
-      let hitWall = false;
+    let maxSteps = 450; // up to 900px of travel
+    let bounces = 0;
 
-      while (maxDistance > 0) {
-        curX += vx * 3;
-        curY += vy * 3;
-        maxDistance -= 3;
+    while (maxSteps > 0 && bounces < 3) {
+      curX += vx;
+      curY += vy;
+      maxSteps--;
 
-        // Check Wall Hit
-        if (curX <= WALL_LEFT) {
-          curX = WALL_LEFT;
-          points.push({ x: curX, y: curY });
-          vx = Math.abs(vx); // reflect right
-          hitWall = true;
-          break;
-        } else if (curX >= WALL_RIGHT) {
-          curX = WALL_RIGHT;
-          points.push({ x: curX, y: curY });
-          vx = -Math.abs(vx); // reflect left
-          hitWall = true;
-          break;
-        }
-
-        // Check Ceiling Hit
-        if (curY <= CEILING_Y) {
-          curY = CEILING_Y;
-          points.push({ x: curX, y: curY });
-          const snap = getSnapCell(null, curX, curY);
-          targetGhost = { x: snap.x, y: snap.y };
-          return { points, targetGhost };
-        }
-
-        // Check collision with any existing bubble
-        let collidedBubble: Bubble | null = null;
-        for (let r = 0; r < 12; r++) {
-          const colsInRow = r % 2 === 0 ? COLS : COLS - 1;
-          for (let c = 0; c < colsInRow; c++) {
-            const b = gridRef.current[r]?.[c];
-            if (b) {
-              const d = Math.hypot(b.x - curX, b.y - curY);
-              if (d <= BUBBLE_DIAMETER * 0.92) {
-                collidedBubble = b;
-                break;
-              }
-            }
-          }
-          if (collidedBubble) break;
-        }
-
-        if (collidedBubble) {
-          points.push({ x: curX, y: curY });
-          const snap = getSnapCell(collidedBubble, curX, curY);
-          targetGhost = { x: snap.x, y: snap.y };
-          return { points, targetGhost };
-        }
+      // Check Left Wall Hit
+      if (curX <= WALL_LEFT) {
+        curX = WALL_LEFT + (WALL_LEFT - curX); // reflect overshoot
+        vx = Math.abs(vx);
+        bounces++;
+        points.push({ x: WALL_LEFT, y: curY });
+      }
+      // Check Right Wall Hit
+      else if (curX >= WALL_RIGHT) {
+        curX = WALL_RIGHT - (curX - WALL_RIGHT); // reflect overshoot
+        vx = -Math.abs(vx);
+        bounces++;
+        points.push({ x: WALL_RIGHT, y: curY });
       }
 
-      if (!hitWall) {
+      // Check Ceiling Hit
+      if (curY <= CEILING_Y) {
+        curY = CEILING_Y;
         points.push({ x: curX, y: curY });
         const snap = getSnapCell(null, curX, curY);
         targetGhost = { x: snap.x, y: snap.y };
-        break;
+        return { points, targetGhost };
+      }
+
+      // Check Bubble Collisions (find closest bubble meeting collision threshold)
+      let closestBubble: Bubble | null = null;
+      let minBubbleDist = Infinity;
+
+      for (let r = 0; r < MAX_ROWS; r++) {
+        const colsInRow = r % 2 === 0 ? COLS : COLS - 1;
+        for (let c = 0; c < colsInRow; c++) {
+          const b = gridRef.current[r]?.[c];
+          if (b) {
+            const d = Math.hypot(b.x - curX, b.y - curY);
+            if (d <= COLLISION_DIST && d < minBubbleDist) {
+              minBubbleDist = d;
+              closestBubble = b;
+            }
+          }
+        }
+      }
+
+      if (closestBubble) {
+        points.push({ x: curX, y: curY });
+        const snap = getSnapCell(closestBubble, curX, curY);
+        targetGhost = { x: snap.x, y: snap.y };
+        return { points, targetGhost };
       }
     }
 
+    points.push({ x: curX, y: curY });
+    const snap = getSnapCell(null, curX, curY);
+    targetGhost = { x: snap.x, y: snap.y };
     return { points, targetGhost };
   };
 
@@ -320,6 +317,22 @@ export const PandaBubbleSlinger: React.FC = () => {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, 400, 400);
 
+    // Danger Zone Line at Row 8
+    ctx.save();
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.45)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath();
+    ctx.moveTo(8, START_Y + (DANGER_ROW + 0.5) * ROW_HEIGHT);
+    ctx.lineTo(392, START_Y + (DANGER_ROW + 0.5) * ROW_HEIGHT);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(220, 38, 38, 0.7)';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('⚠️ DANGER LINE', 390, START_Y + (DANGER_ROW + 0.5) * ROW_HEIGHT - 3);
+    ctx.restore();
+
     // Side Wall borders
     ctx.fillStyle = '#059669';
     ctx.fillRect(0, 0, 4, 400);
@@ -331,25 +344,25 @@ export const PandaBubbleSlinger: React.FC = () => {
 
     // Draw Grid Bubbles
     for (let r = 0; r < gridRef.current.length; r++) {
-      for (let c = 0; c < gridRef.current[r].length; c++) {
-        const b = gridRef.current[r][c];
+      for (let c = 0; c < (gridRef.current[r]?.length || 0); c++) {
+        const b = gridRef.current[r]?.[c];
         if (b) {
-          ctx.fillStyle = SNACK_COLORS[b.type];
+          ctx.fillStyle = SNACK_COLORS[b.type] || '#10b981';
           ctx.beginPath();
           ctx.arc(b.x, b.y, BUBBLE_RADIUS - 1, 0, Math.PI * 2);
           ctx.fill();
 
-          // Shiny highlight
+          // Shiny 3D bubble highlight
           ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
           ctx.beginPath();
           ctx.arc(b.x - 5, b.y - 5, 5, 0, Math.PI * 2);
           ctx.fill();
 
-          // Icon
+          // Snack Icon
           ctx.font = '18px sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(SNACK_ICONS[b.type], b.x, b.y + 1);
+          ctx.fillText(SNACK_ICONS[b.type] || '🎋', b.x, b.y + 1);
         }
       }
     }
@@ -360,7 +373,7 @@ export const PandaBubbleSlinger: React.FC = () => {
       ctx.translate(fb.x, fb.y);
       ctx.rotate(fb.rot);
 
-      ctx.fillStyle = SNACK_COLORS[fb.type];
+      ctx.fillStyle = SNACK_COLORS[fb.type] || '#10b981';
       ctx.beginPath();
       ctx.arc(0, 0, BUBBLE_RADIUS - 1, 0, Math.PI * 2);
       ctx.fill();
@@ -368,12 +381,12 @@ export const PandaBubbleSlinger: React.FC = () => {
       ctx.font = '18px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(SNACK_ICONS[fb.type], 0, 1);
+      ctx.fillText(SNACK_ICONS[fb.type] || '🎋', 0, 1);
       ctx.restore();
     });
 
-    // Draw Reflected Aiming Guide Lines - ALWAYS VISIBLE when ready to shoot!
-    if (!currentBulletRef.current.active && (gameRunning || !gameOver)) {
+    // Draw Reflected Aiming Guide Lines - ALWAYS VISIBLE whenever ready to shoot!
+    if (!currentBulletRef.current.active) {
       const { points, targetGhost } = computeAimTrajectory(aimAngleRef.current);
 
       ctx.save();
@@ -389,7 +402,7 @@ export const PandaBubbleSlinger: React.FC = () => {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // 2. Draw prominent green circular guide beads along the trajectory path
+      // 2. Draw prominent green circular guide beads along trajectory path
       for (let i = 0; i < points.length - 1; i++) {
         const p1 = points[i];
         const p2 = points[i + 1];
@@ -397,7 +410,7 @@ export const PandaBubbleSlinger: React.FC = () => {
         if (segDist > 0) {
           const nx = (p2.x - p1.x) / segDist;
           const ny = (p2.y - p1.y) / segDist;
-          for (let d = 16; d < segDist; d += 20) {
+          for (let d = 8; d < segDist; d += 18) {
             const dotX = p1.x + nx * d;
             const dotY = p1.y + ny * d;
 
@@ -419,13 +432,18 @@ export const PandaBubbleSlinger: React.FC = () => {
       // 3. Draw ghost target landing circle with exact snack color and icon preview
       if (targetGhost) {
         ctx.save();
-        // Snapped landing slot glow
-        ctx.fillStyle = SNACK_COLORS[nextBulletTypeRef.current];
-        ctx.globalAlpha = 0.45;
+        const snackType = nextBulletTypeRef.current || 'bamboo';
+        const ghostColor = SNACK_COLORS[snackType] || '#10b981';
+        const ghostIcon = SNACK_ICONS[snackType] || '🎋';
+
+        // Snapped landing slot aura
+        ctx.fillStyle = ghostColor;
+        ctx.globalAlpha = 0.35;
         ctx.beginPath();
-        ctx.arc(targetGhost.x, targetGhost.y, BUBBLE_RADIUS, 0, Math.PI * 2);
+        ctx.arc(targetGhost.x, targetGhost.y, BUBBLE_RADIUS + 2, 0, Math.PI * 2);
         ctx.fill();
 
+        // High contrast dashed target boundary
         ctx.globalAlpha = 0.95;
         ctx.strokeStyle = '#047857';
         ctx.lineWidth = 2.5;
@@ -436,37 +454,66 @@ export const PandaBubbleSlinger: React.FC = () => {
         ctx.setLineDash([]);
 
         // Landing snack emoji icon preview
-        ctx.globalAlpha = 0.8;
-        ctx.font = '16px sans-serif';
+        ctx.globalAlpha = 0.9;
+        ctx.font = '18px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(SNACK_ICONS[nextBulletTypeRef.current], targetGhost.x, targetGhost.y + 1);
+        ctx.fillText(ghostIcon, targetGhost.x, targetGhost.y + 1);
         ctx.restore();
       }
       ctx.restore();
     }
 
-    // Slingshot Base & Panda at bottom
+    // Slingshot Base & Plinth
     ctx.fillStyle = '#047857';
     ctx.fillRect(0, 382, 400, 18);
 
-    // Panda Slingshot Shooter
-    ctx.font = '38px sans-serif';
+    // Aimed Bamboo Launcher Tube
+    ctx.save();
+    ctx.translate(LAUNCH_X, LAUNCH_Y);
+    ctx.rotate(aimAngleRef.current + Math.PI / 2);
+    ctx.fillStyle = '#16a34a';
+    ctx.fillRect(-6, -26, 12, 26);
+    ctx.fillStyle = '#15803d';
+    ctx.fillRect(-8, -26, 16, 5);
+    ctx.restore();
+
+    // Ready Loaded Snack in Slingshot (visible when ready to shoot)
+    const bullet = currentBulletRef.current;
+    if (!bullet.active) {
+      const readyType = nextBulletTypeRef.current || 'bamboo';
+      ctx.fillStyle = SNACK_COLORS[readyType] || '#10b981';
+      ctx.beginPath();
+      ctx.arc(LAUNCH_X, LAUNCH_Y, BUBBLE_RADIUS - 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.beginPath();
+      ctx.arc(LAUNCH_X - 4, LAUNCH_Y - 4, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.font = '18px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(SNACK_ICONS[readyType] || '🎋', LAUNCH_X, LAUNCH_Y + 1);
+    }
+
+    // Panda Mascot Shooter
+    ctx.font = '36px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🐼', SLING_X, 362);
+    ctx.fillText('🐼', LAUNCH_X, 368);
 
     // Next snack preview circle
-    ctx.font = '11px sans-serif';
+    ctx.font = 'bold 10px sans-serif';
     ctx.fillStyle = '#065f46';
-    ctx.fillText('NEXT', 135, 348);
-    ctx.font = '22px sans-serif';
-    ctx.fillText(SNACK_ICONS[nextBulletTypeRef.current], 135, 368);
+    ctx.fillText('NEXT', 60, 356);
+    ctx.font = '24px sans-serif';
+    ctx.fillText(SNACK_ICONS[nextBulletTypeRef.current] || '🍎', 60, 374);
 
     // Flying Bullet if active
-    const bullet = currentBulletRef.current;
     if (bullet.active) {
-      ctx.fillStyle = SNACK_COLORS[bullet.type];
+      ctx.fillStyle = SNACK_COLORS[bullet.type] || '#10b981';
       ctx.beginPath();
       ctx.arc(bullet.x, bullet.y, BUBBLE_RADIUS, 0, Math.PI * 2);
       ctx.fill();
@@ -479,26 +526,29 @@ export const PandaBubbleSlinger: React.FC = () => {
       ctx.font = '18px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(SNACK_ICONS[bullet.type], bullet.x, bullet.y + 1);
+      ctx.fillText(SNACK_ICONS[bullet.type] || '🎋', bullet.x, bullet.y + 1);
     }
   };
 
   const fireBullet = () => {
-    if (currentBulletRef.current.active || !gameRunning || shotsLeft <= 0) return;
+    if (currentBulletRef.current.active || !gameRunning || shotsLeftRef.current <= 0) return;
 
     sounds.playBounce();
-    const speed = 13;
     currentBulletRef.current = {
-      x: SLING_X,
-      y: SLING_Y - 10,
-      vx: Math.cos(aimAngleRef.current) * speed,
-      vy: Math.sin(aimAngleRef.current) * speed,
+      x: LAUNCH_X,
+      y: LAUNCH_Y,
+      vx: Math.cos(aimAngleRef.current) * BULLET_SPEED,
+      vy: Math.sin(aimAngleRef.current) * BULLET_SPEED,
       type: nextBulletTypeRef.current,
       active: true,
     };
+    bulletFlightFramesRef.current = 0;
 
-    nextBulletTypeRef.current = REGULAR_TYPES[Math.floor(Math.random() * REGULAR_TYPES.length)];
-    setShotsLeft(prev => prev - 1);
+    shotsLeftRef.current -= 1;
+    setShotsLeft(shotsLeftRef.current);
+
+    // Pick next bullet from currently remaining colors on the board
+    nextBulletTypeRef.current = pickNextBulletType();
   };
 
   const findMatches = (startR: number, startC: number, matchType: SnackType) => {
@@ -520,11 +570,12 @@ export const PandaBubbleSlinger: React.FC = () => {
 
         const neighbors = getHexNeighbors(r, c);
         neighbors.forEach(n => {
+          const colsInRow = n.r % 2 === 0 ? COLS : COLS - 1;
           if (
             n.r >= 0 &&
-            n.r < 12 &&
+            n.r < MAX_ROWS &&
             n.c >= 0 &&
-            n.c < (n.r % 2 === 0 ? COLS : COLS - 1) &&
+            n.c < colsInRow &&
             gridRef.current[n.r]?.[n.c]
           ) {
             queue.push(n);
@@ -555,11 +606,12 @@ export const PandaBubbleSlinger: React.FC = () => {
       const neighbors = getHexNeighbors(curr.r, curr.c);
       for (const n of neighbors) {
         const key = `${n.r},${n.c}`;
+        const colsInRow = n.r % 2 === 0 ? COLS : COLS - 1;
         if (
           n.r >= 0 &&
-          n.r < 12 &&
+          n.r < MAX_ROWS &&
           n.c >= 0 &&
-          n.c < (n.r % 2 === 0 ? COLS : COLS - 1) &&
+          n.c < colsInRow &&
           grid[n.r]?.[n.c] &&
           !connected.has(key)
         ) {
@@ -571,14 +623,13 @@ export const PandaBubbleSlinger: React.FC = () => {
 
     // Any bubble in the grid NOT connected to row 0 falls down!
     let droppedCount = 0;
-    for (let r = 0; r < 12; r++) {
+    for (let r = 0; r < MAX_ROWS; r++) {
       const colsInRow = r % 2 === 0 ? COLS : COLS - 1;
       for (let c = 0; c < colsInRow; c++) {
         const b = grid[r]?.[c];
         if (b && !connected.has(`${r},${c}`)) {
-          grid[r][c] = null;
           droppedCount++;
-
+          grid[r][c] = null;
           fallingBubblesRef.current.push({
             x: b.x,
             y: b.y,
@@ -614,32 +665,9 @@ export const PandaBubbleSlinger: React.FC = () => {
     };
     grid[targetR][targetC] = placed;
     bullet.active = false;
+    bulletFlightFramesRef.current = 0;
 
-    // Check Bomb
-    if (bullet.type === 'bomb') {
-      sounds.playPowerUp();
-      let popped = 0;
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          const nr = targetR + dr;
-          const nc = targetC + dc;
-          if (grid[nr]?.[nc]) {
-            grid[nr][nc] = null;
-            popped++;
-          }
-        }
-      }
-      scoreRef.current += popped * 25;
-      setScore(scoreRef.current);
-      const dropped = dropFloatingBubbles();
-      if (dropped > 0) {
-        scoreRef.current += dropped * 40;
-        setScore(scoreRef.current);
-      }
-      return;
-    }
-
-    // Check Matching Colors (3 or more)
+    // Check Matching Colors (3 or more, or rainbow)
     const matches = findMatches(targetR, targetC, bullet.type);
     if (matches.length >= 3 || bullet.type === 'rainbow') {
       sounds.playPowerUp();
@@ -653,7 +681,7 @@ export const PandaBubbleSlinger: React.FC = () => {
       const dropped = dropFloatingBubbles();
       if (dropped > 0) {
         sounds.playPowerUp();
-        scoreRef.current += dropped * 40;
+        scoreRef.current += dropped * 50;
         setScore(scoreRef.current);
       }
     } else {
@@ -672,17 +700,35 @@ export const PandaBubbleSlinger: React.FC = () => {
       });
     });
 
-    if (remaining === 0 || lowestR >= 9 || shotsLeft <= 1) {
-      stopGame();
+    if (remaining === 0) {
+      // VICTORY! All bubbles cleared
+      scoreRef.current += 500; // Big bonus for clearing board
+      setScore(scoreRef.current);
+      sounds.playPowerUp();
+      setTimeout(() => {
+        stopGame(true);
+      }, 700);
+      return;
+    }
+
+    if (lowestR >= DANGER_ROW || shotsLeftRef.current <= 0) {
+      setTimeout(() => {
+        stopGame(false);
+      }, 500);
     }
   };
 
-  const stopGame = () => {
+  const stopGame = (won: boolean = false) => {
     setGameRunning(false);
     if (animIdRef.current) cancelAnimationFrame(animIdRef.current);
-    sounds.playGameOver();
+    if (won) {
+      sounds.playPowerUp();
+    } else {
+      sounds.playGameOver();
+    }
     const final = scoreRef.current;
     setLatestScore(final);
+    setIsVictory(won);
     setGameOver(true);
   };
 
@@ -692,54 +738,70 @@ export const PandaBubbleSlinger: React.FC = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Sub-stepped Bullet Movement (4 sub-steps per frame) for rock-solid precision
+    // Sub-stepped Bullet Movement (SUB_STEPS per frame) for rock-solid precision matching raycast
     const bullet = currentBulletRef.current;
     if (bullet.active) {
-      const steps = 4;
-      const stepVx = bullet.vx / steps;
-      const stepVy = bullet.vy / steps;
+      bulletFlightFramesRef.current += 1;
+      // Safety timeout if bullet gets stuck or ricochets endlessly
+      if (bulletFlightFramesRef.current > 180) {
+        snapBulletToGrid(null);
+        bullet.active = false;
+        bulletFlightFramesRef.current = 0;
+      } else {
+        const stepVx = bullet.vx / SUB_STEPS;
+        const stepVy = bullet.vy / SUB_STEPS;
 
-      for (let s = 0; s < steps && bullet.active; s++) {
-        bullet.x += stepVx;
-        bullet.y += stepVy;
+        for (let s = 0; s < SUB_STEPS && bullet.active; s++) {
+          bullet.x += stepVx;
+          bullet.y += stepVy;
 
-        // Bounce off left / right walls
-        if (bullet.x <= WALL_LEFT) {
-          bullet.x = WALL_LEFT;
-          bullet.vx = Math.abs(bullet.vx);
-          sounds.playBounce();
-        } else if (bullet.x >= WALL_RIGHT) {
-          bullet.x = WALL_RIGHT;
-          bullet.vx = -Math.abs(bullet.vx);
-          sounds.playBounce();
-        }
+          // Bounce off left / right walls with overshoot reflection
+          if (bullet.x <= WALL_LEFT) {
+            bullet.x = WALL_LEFT + (WALL_LEFT - bullet.x);
+            bullet.vx = Math.abs(bullet.vx);
+            sounds.playBounce();
+          } else if (bullet.x >= WALL_RIGHT) {
+            bullet.x = WALL_RIGHT - (bullet.x - WALL_RIGHT);
+            bullet.vx = -Math.abs(bullet.vx);
+            sounds.playBounce();
+          }
 
-        // Hit ceiling
-        if (bullet.y <= CEILING_Y) {
-          snapBulletToGrid(null);
-          break;
-        }
+          // Out-of-bounds safety check
+          if (bullet.y > 410 || bullet.x < -30 || bullet.x > 430 || bullet.y < -30) {
+            bullet.active = false;
+            bulletFlightFramesRef.current = 0;
+            break;
+          }
 
-        // Hit another bubble
-        let collidedBubble: Bubble | null = null;
-        for (let r = 0; r < 12; r++) {
-          const colsInRow = r % 2 === 0 ? COLS : COLS - 1;
-          for (let c = 0; c < colsInRow; c++) {
-            const b = gridRef.current[r]?.[c];
-            if (b) {
-              const dist = Math.hypot(b.x - bullet.x, b.y - bullet.y);
-              if (dist <= BUBBLE_DIAMETER * 0.90) {
-                collidedBubble = b;
-                break;
+          // Hit ceiling
+          if (bullet.y <= CEILING_Y) {
+            bullet.y = CEILING_Y;
+            snapBulletToGrid(null);
+            break;
+          }
+
+          // Hit another bubble (find closest within threshold)
+          let closestBubble: Bubble | null = null;
+          let minBubbleDist = Infinity;
+
+          for (let r = 0; r < MAX_ROWS; r++) {
+            const colsInRow = r % 2 === 0 ? COLS : COLS - 1;
+            for (let c = 0; c < colsInRow; c++) {
+              const b = gridRef.current[r]?.[c];
+              if (b) {
+                const dist = Math.hypot(b.x - bullet.x, b.y - bullet.y);
+                if (dist <= COLLISION_DIST && dist < minBubbleDist) {
+                  minBubbleDist = dist;
+                  closestBubble = b;
+                }
               }
             }
           }
-          if (collidedBubble) break;
-        }
 
-        if (collidedBubble) {
-          snapBulletToGrid(collidedBubble);
-          break;
+          if (closestBubble) {
+            snapBulletToGrid(closestBubble);
+            break;
+          }
         }
       }
     }
@@ -765,12 +827,21 @@ export const PandaBubbleSlinger: React.FC = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+
     const x = (clientX - rect.left) * (400 / rect.width);
     const y = (clientY - rect.top) * (400 / rect.height);
-    const angle = Math.atan2(y - SLING_Y, x - SLING_X);
+    let angle = Math.atan2(y - LAUNCH_Y, x - LAUNCH_X);
 
-    // Limit upward angle (-170 deg to -10 deg)
-    if (angle < -0.15 && angle > -Math.PI + 0.15) {
+    // If pointer is pulled below the launcher, clamp to lowest upward angle on that side
+    if (y >= LAUNCH_Y) {
+      angle = x >= LAUNCH_X ? -0.15 : -Math.PI + 0.15;
+    } else {
+      // Smoothly clamp between -171° and -9°
+      angle = Math.max(-Math.PI + 0.15, Math.min(-0.15, angle));
+    }
+
+    if (Number.isFinite(angle)) {
       aimAngleRef.current = angle;
     }
   };
@@ -783,9 +854,12 @@ export const PandaBubbleSlinger: React.FC = () => {
     nextBulletTypeRef.current = 'bamboo';
     fallingBubblesRef.current = [];
     aimAngleRef.current = -Math.PI / 2;
+    bulletFlightFramesRef.current = 0;
     scoreRef.current = 0;
+    shotsLeftRef.current = isEasy ? 35 : isHard ? 24 : 30;
     setScore(0);
-    setShotsLeft(isEasy ? 35 : isHard ? 20 : 25);
+    setShotsLeft(shotsLeftRef.current);
+    setIsVictory(false);
     setGameOver(false);
     setGameRunning(true);
     if (animIdRef.current) cancelAnimationFrame(animIdRef.current);
@@ -798,7 +872,22 @@ export const PandaBubbleSlinger: React.FC = () => {
       const ctx = canvas.getContext('2d');
       if (ctx) drawScene(ctx);
     }
+
+    // Keyboard controls for laptop/desktop play
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+        aimAngleRef.current = Math.max(-Math.PI + 0.15, aimAngleRef.current - 0.05);
+      } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+        aimAngleRef.current = Math.min(-0.15, aimAngleRef.current + 0.05);
+      } else if (e.code === 'Space' || e.key === 'Enter' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        fireBullet();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
     return () => {
+      window.removeEventListener('keydown', handleKeyDown);
       if (animIdRef.current) cancelAnimationFrame(animIdRef.current);
     };
   }, []);
@@ -843,7 +932,7 @@ export const PandaBubbleSlinger: React.FC = () => {
         </div>
 
         <p className="text-xs text-slate-500 mb-3">
-          Drag to aim the <strong>bounce angle</strong> off walls! Match 3 colors to pop clusters—unattached snacks tumble down for big bonus points!
+          Drag or move your finger / mouse to aim! Tap or press <strong>Space</strong> to launch. Match 3 to drop clusters for huge bonus points!
         </p>
 
         {/* CANVAS WRAPPER */}
@@ -852,37 +941,35 @@ export const PandaBubbleSlinger: React.FC = () => {
             ref={canvasRef}
             width={400}
             height={400}
+            style={{ touchAction: 'none' }}
             className="w-full h-full block cursor-crosshair select-none"
-            onMouseMove={e => {
-              isAimingRef.current = true;
+            onPointerDown={e => {
+              handlePointerAim(e.clientX, e.clientY);
+            }}
+            onPointerMove={e => {
               handlePointerAim(e.clientX, e.clientY);
             }}
             onClick={e => {
               handlePointerAim(e.clientX, e.clientY);
               fireBullet();
             }}
-            onTouchStart={e => {
-              isAimingRef.current = true;
-              handlePointerAim(e.touches[0].clientX, e.touches[0].clientY);
-            }}
-            onTouchMove={e => {
-              isAimingRef.current = true;
-              handlePointerAim(e.touches[0].clientX, e.touches[0].clientY);
-            }}
-            onTouchEnd={() => {
-              fireBullet();
-            }}
           />
 
           {(!gameRunning || gameOver) && (
             <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-xs flex flex-col items-center justify-center text-white p-4">
-              <span className="text-5xl mb-2">🐼</span>
+              <span className="text-5xl mb-2">{isVictory ? '🎉' : '🐼'}</span>
               <h3 className="text-lg font-black">
-                {gameOver ? `Puzzle Complete! Score: ${score}` : 'Panda Bubble Bamboo Slinger'}
+                {isVictory
+                  ? `Bamboo Grove Cleared! Score: ${score}`
+                  : gameOver
+                  ? `Game Over! Score: ${score}`
+                  : 'Panda Bubble Bamboo Slinger'}
               </h3>
               <p className="text-xs text-slate-200 mt-1 mb-4 max-w-xs">
-                {gameOver
-                  ? score >= 200
+                {isVictory
+                  ? 'Incredible shot! You cleared all the snacks from the bamboo grove! Bonus +500 points!'
+                  : gameOver
+                  ? score >= 250
                     ? 'Pop master! Bao Li feasted on all the matching snacks!'
                     : 'Great aiming! Enter your name below to claim your spot!'
                   : 'Aim off the walls to bounce into matching clusters! Pop clusters to drop unattached snacks!'}
