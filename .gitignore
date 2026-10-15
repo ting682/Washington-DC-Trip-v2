@@ -3,5 +3,11 @@ dist
 dist-ssr
 *.local
 .env
+.env.*
+!.env.example
 .DS_Store
 *.log
+
+# Sensitive credentials & config
+firebase-applet-config.json
+!firebase-applet-config.example.json
