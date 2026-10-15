@@ -61,7 +61,9 @@ export const WeatherCard: React.FC = () => {
 
   const hourlyScrollRef = useRef<HTMLDivElement>(null);
   const dailyScrollRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [dailyPage, setDailyPage] = useState<number>(0);
+  const [mobileLayout, setMobileLayout] = useState<'threeDay' | 'detailed'>('threeDay');
 
   const toDisplayTemp = (tempF: number) => {
     if (unit === 'C') {
@@ -453,8 +455,12 @@ export const WeatherCard: React.FC = () => {
   };
 
   const scrollDaily = (direction: 'left' | 'right') => {
-    if (dailyScrollRef.current) {
-      const scrollAmount = dailyScrollRef.current.clientWidth;
+    if (!dailyScrollRef.current) return;
+    if (mobileLayout === 'threeDay' || window.innerWidth >= 640) {
+      const targetPage = direction === 'left' ? 0 : 1;
+      scrollToDaySet(targetPage);
+    } else {
+      const scrollAmount = dailyScrollRef.current.clientWidth * 0.85;
       dailyScrollRef.current.scrollBy({
         left: direction === 'left' ? -scrollAmount : scrollAmount,
         behavior: 'smooth',
@@ -463,36 +469,66 @@ export const WeatherCard: React.FC = () => {
   };
 
   const scrollToDaySet = (pageIndex: number) => {
-    if (dailyScrollRef.current) {
-      const scrollAmount = dailyScrollRef.current.clientWidth;
-      dailyScrollRef.current.scrollTo({
-        left: pageIndex * scrollAmount,
+    setDailyPage(pageIndex);
+    if (!dailyScrollRef.current) return;
+    const container = dailyScrollRef.current;
+    if (mobileLayout === 'threeDay' || window.innerWidth >= 640) {
+      const clientWidth = container.clientWidth;
+      container.scrollTo({
+        left: pageIndex * clientWidth,
         behavior: 'smooth',
       });
-      setDailyPage(pageIndex);
-    }
-  };
-
-  const handleDailyScroll = () => {
-    if (dailyScrollRef.current) {
-      const { scrollLeft, clientWidth } = dailyScrollRef.current;
-      if (clientWidth > 0) {
-        const page = Math.round(scrollLeft / clientWidth);
-        setDailyPage(page);
+    } else {
+      const targetIndex = pageIndex === 0 ? 0 : 3;
+      const card = cardRefs.current[targetIndex];
+      if (card) {
+        const cardLeft = card.offsetLeft - container.offsetLeft;
+        container.scrollTo({ left: Math.max(0, cardLeft), behavior: 'smooth' });
       }
     }
   };
 
-  const handleSelectDay = (index: number) => {
+  const handleDailyScroll = () => {
+    if (!dailyScrollRef.current) return;
+    const { scrollLeft, scrollWidth, clientWidth } = dailyScrollRef.current;
+    if (clientWidth > 0) {
+      if (mobileLayout === 'threeDay' || window.innerWidth >= 640) {
+        const page = Math.round(scrollLeft / clientWidth);
+        setDailyPage(Math.min(1, Math.max(0, page)));
+      } else {
+        const maxScroll = scrollWidth - clientWidth;
+        if (maxScroll > 20) {
+          const ratio = scrollLeft / maxScroll;
+          setDailyPage(ratio > 0.45 ? 1 : 0);
+        }
+      }
+    }
+  };
+
+  const handleSelectDay = (index: number, fromDirectCardClick = false) => {
     setSelectedDayIndex(index);
     setShowHourly(true);
-    if (dailyScrollRef.current) {
-      const targetPage = index >= 3 ? 1 : 0;
-      const clientWidth = dailyScrollRef.current.clientWidth;
-      dailyScrollRef.current.scrollTo({
-        left: targetPage * clientWidth,
-        behavior: 'smooth',
-      });
+    const targetPage = index >= 3 ? 1 : 0;
+
+    if (!dailyScrollRef.current) return;
+
+    if (mobileLayout === 'threeDay' || window.innerWidth >= 640) {
+      // If the target day is in the OTHER 3-day set, smoothly transition pages
+      // If it's already on the active page (e.g. Day 5 on Page 1), do NOT scroll or reset!
+      if (dailyPage !== targetPage) {
+        scrollToDaySet(targetPage);
+      }
+    } else {
+      // In detailed mode on mobile:
+      if (!fromDirectCardClick) {
+        const card = cardRefs.current[index];
+        if (card) {
+          const container = dailyScrollRef.current;
+          const cardLeft = card.offsetLeft - container.offsetLeft;
+          const target = cardLeft - (container.clientWidth - card.clientWidth) / 2;
+          container.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+        }
+      }
       setDailyPage(targetPage);
     }
   };
@@ -631,8 +667,36 @@ export const WeatherCard: React.FC = () => {
                 </span>
               </div>
 
-              {/* Controls: Prev/Next & Quick Jump to Days 1-3 vs 4-6 */}
-              <div className="flex items-center gap-2 self-end sm:self-center">
+              {/* Controls: Mode Switcher, 3-day Set Tabs & Prev/Next */}
+              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
+                {/* Mobile View Toggle: 3-at-a-Glance vs Detailed */}
+                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-bold shadow-2xs sm:hidden">
+                  <button
+                    onClick={() => setMobileLayout('threeDay')}
+                    className={`px-2 py-1 rounded-md transition cursor-pointer text-[10px] font-bold flex items-center gap-1 ${
+                      mobileLayout === 'threeDay'
+                        ? 'bg-white text-sky-700 shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                    title="Show 3 days side-by-side"
+                  >
+                    <i className="fa-solid fa-table-columns text-[9px]"></i>
+                    3-at-Once
+                  </button>
+                  <button
+                    onClick={() => setMobileLayout('detailed')}
+                    className={`px-2 py-1 rounded-md transition cursor-pointer text-[10px] font-bold flex items-center gap-1 ${
+                      mobileLayout === 'detailed'
+                        ? 'bg-white text-sky-700 shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                    title="Show large swipeable cards"
+                  >
+                    <i className="fa-solid fa-square text-[9px]"></i>
+                    Cards
+                  </button>
+                </div>
+
                 {/* 3-day set pills */}
                 <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-bold shadow-2xs">
                   <button
@@ -643,7 +707,7 @@ export const WeatherCard: React.FC = () => {
                         : 'text-slate-500 hover:text-slate-900'
                     }`}
                   >
-                    Days 1–3 (Oct 15–17)
+                    Days 1–3 <span className="hidden xs:inline">(Oct 15–17)</span>
                   </button>
                   <button
                     onClick={() => scrollToDaySet(1)}
@@ -653,16 +717,21 @@ export const WeatherCard: React.FC = () => {
                         : 'text-slate-500 hover:text-slate-900'
                     }`}
                   >
-                    Days 4–6 (Oct 18–20)
+                    Days 4–6 <span className="hidden xs:inline">(Oct 18–20)</span>
                   </button>
                 </div>
 
-                {/* Left & Right chevron buttons */}
+                {/* Left & Right chevron buttons + Dots */}
                 <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 px-1.5 py-1 bg-slate-50 rounded-md border border-slate-200/60 mr-0.5" title={`Page ${dailyPage + 1} of 2`}>
+                    <span className={`w-1.5 h-1.5 rounded-full transition-all ${dailyPage === 0 ? 'bg-sky-600 w-3' : 'bg-slate-300'}`}></span>
+                    <span className={`w-1.5 h-1.5 rounded-full transition-all ${dailyPage === 1 ? 'bg-sky-600 w-3' : 'bg-slate-300'}`}></span>
+                  </div>
+
                   <button
                     onClick={() => scrollDaily('left')}
                     disabled={dailyPage === 0}
-                    className={`w-8 h-8 rounded-lg border flex items-center justify-center text-xs transition cursor-pointer shadow-2xs ${
+                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg border flex items-center justify-center text-xs transition cursor-pointer shadow-2xs ${
                       dailyPage === 0
                         ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
                         : 'bg-white text-slate-700 hover:text-sky-600 border-slate-200 hover:bg-sky-50/50'
@@ -674,7 +743,7 @@ export const WeatherCard: React.FC = () => {
                   <button
                     onClick={() => scrollDaily('right')}
                     disabled={dailyPage === 1}
-                    className={`w-8 h-8 rounded-lg border flex items-center justify-center text-xs transition cursor-pointer shadow-2xs ${
+                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg border flex items-center justify-center text-xs transition cursor-pointer shadow-2xs ${
                       dailyPage === 1
                         ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
                         : 'bg-white text-slate-700 hover:text-sky-600 border-slate-200 hover:bg-sky-50/50'
@@ -687,104 +756,219 @@ export const WeatherCard: React.FC = () => {
               </div>
             </div>
 
-            {/* Horizontal Scroll Container (Exactly 3 cards visible side-by-side on sm+ screens) */}
-            <div
-              ref={dailyScrollRef}
-              onScroll={handleDailyScroll}
-              className="flex gap-3 overflow-x-auto no-scrollbar scroll-smooth snap-x snap-mandatory pb-2 pt-1"
-            >
-              {forecast.map((f, i) => {
-                const isSelected = selectedDayIndex === i;
-                return (
-                  <button
-                    key={f.date || i}
-                    onClick={() => handleSelectDay(i)}
-                    className={`w-[85vw] sm:w-[calc((100%-24px)/3)] flex-shrink-0 snap-start p-4 rounded-2xl border text-left transition cursor-pointer relative flex flex-col justify-between ${
-                      isSelected
-                        ? 'bg-gradient-to-b from-sky-50 via-white to-sky-50/30 border-sky-400 ring-2 ring-sky-400/40 shadow-sm'
-                        : 'bg-slate-50/80 border-slate-200 hover:bg-white hover:border-slate-300 shadow-2xs'
-                    }`}
-                  >
-                    <div>
-                      {/* Top Day Header */}
-                      <div className="flex items-center justify-between mb-1.5">
+            {/* Container for Cards */}
+            {mobileLayout === 'threeDay' ? (
+              /* 3-at-Once Mode: Exactly 3 days visible side-by-side per page on all devices */
+              <div
+                ref={dailyScrollRef}
+                onScroll={handleDailyScroll}
+                className="flex overflow-x-auto no-scrollbar scroll-smooth snap-x snap-mandatory pb-2 pt-1 w-full"
+              >
+                {[0, 1].map((pageIdx) => {
+                  const pageDays = forecast.slice(pageIdx * 3, pageIdx * 3 + 3);
+                  return (
+                    <div
+                      key={pageIdx}
+                      className="w-full min-w-full flex-shrink-0 snap-start grid grid-cols-3 gap-1.5 sm:gap-3"
+                    >
+                      {pageDays.map((f, i) => {
+                        const globalIdx = pageIdx * 3 + i;
+                        const isSelected = selectedDayIndex === globalIdx;
+                        return (
+                          <button
+                            key={f.date || globalIdx}
+                            ref={(el) => (cardRefs.current[globalIdx] = el)}
+                            onClick={() => handleSelectDay(globalIdx, true)}
+                            className={`p-2 sm:p-4 rounded-xl sm:rounded-2xl border text-left transition cursor-pointer relative flex flex-col justify-between ${
+                              isSelected
+                                ? 'bg-gradient-to-b from-sky-50 via-white to-sky-50/40 border-sky-400 ring-2 ring-sky-400/40 shadow-sm'
+                                : 'bg-slate-50/80 border-slate-200 hover:bg-white hover:border-slate-300 shadow-2xs'
+                            }`}
+                          >
+                            <div>
+                              {/* Top Day Header */}
+                              <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-1 mb-1">
+                                <span
+                                  className={`text-[9px] sm:text-[11px] font-black uppercase tracking-wider px-1.5 sm:px-2 py-0.5 rounded-md self-start ${
+                                    isSelected
+                                      ? 'bg-sky-600 text-white shadow-2xs'
+                                      : 'bg-slate-200 text-slate-700'
+                                  }`}
+                                >
+                                  Day {f.tripDayNumber}
+                                </span>
+                                <span className="text-[10px] sm:text-xs font-black text-slate-800 font-mono">
+                                  {f.dayName.slice(0, 3)}, {f.formattedDate}
+                                </span>
+                              </div>
+
+                              {/* Itinerary Title (Hidden on tiny screens, shown on tablet/desktop) */}
+                              <div className="hidden sm:block mt-1">
+                                <div className="text-xs sm:text-sm font-black text-slate-900 leading-snug line-clamp-1">
+                                  {f.tripTitle}
+                                </div>
+                                <div className="text-[10px] sm:text-[11px] text-sky-700 font-semibold bg-sky-100/60 px-1.5 sm:px-2 py-0.5 rounded mt-1 inline-block border border-sky-200/50 line-clamp-1">
+                                  {f.tripHighlight}
+                                </div>
+                              </div>
+
+                              {/* Weather Icon & Temps */}
+                              <div className="my-1.5 sm:my-3.5 flex items-center justify-between bg-white/70 p-1.5 sm:p-2.5 rounded-lg sm:rounded-xl border border-slate-100">
+                                <div className="flex items-center gap-1.5 sm:gap-3 w-full">
+                                  <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-xl sm:text-3xl shadow-2xs flex-shrink-0">
+                                    <i className={`fa-solid ${f.icon}`}></i>
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-baseline flex-wrap">
+                                      <span className="text-base sm:text-2xl font-black text-slate-900 font-mono">
+                                        {toDisplayTemp(f.tempMax)}°
+                                      </span>
+                                      <span className="text-[10px] sm:text-sm font-bold text-slate-400 font-mono ml-0.5 sm:ml-1.5">
+                                        /{toDisplayTemp(f.tempMin)}°
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] sm:text-xs font-bold text-slate-700 truncate mt-0.5">
+                                      {f.condition}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Bottom stats bar */}
+                            <div className="pt-1.5 sm:pt-2.5 border-t border-slate-200/80 flex items-center justify-between text-[9px] sm:text-[11px] text-slate-500 font-medium">
+                              <span
+                                className={`font-black flex items-center gap-0.5 sm:gap-1 ${
+                                  f.precipProb >= 35 ? 'text-blue-600' : 'text-slate-600'
+                                }`}
+                              >
+                                <i className="fa-solid fa-droplet text-[8px] sm:text-[10px] text-blue-500"></i>
+                                <span>{f.precipProb}%</span>
+                              </span>
+                              <span className="hidden xs:inline">
+                                <i className="fa-solid fa-wind mr-0.5 text-slate-400"></i>
+                                {f.windSpeedMax}m
+                              </span>
+                              <span>
+                                <i className="fa-solid fa-sun mr-0.5 text-amber-500"></i>
+                                UV {f.uvIndexMax}
+                              </span>
+                            </div>
+
+                            {isSelected && (
+                              <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.2 sm:px-2 sm:py-0.5 rounded-full bg-sky-600 text-white font-black text-[8px] sm:text-[9px] shadow-xs flex items-center gap-0.5">
+                                <i className="fa-solid fa-check text-[7px] sm:text-[8px]"></i>
+                                <span className="hidden xs:inline">Viewing</span>
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              /* Detailed Mode: Large swipeable individual cards with full itinerary details */
+              <div
+                ref={dailyScrollRef}
+                onScroll={handleDailyScroll}
+                className="flex gap-3 overflow-x-auto no-scrollbar scroll-smooth snap-x snap-mandatory pb-2 pt-1"
+              >
+                {forecast.map((f, i) => {
+                  const isSelected = selectedDayIndex === i;
+                  return (
+                    <button
+                      key={f.date || i}
+                      ref={(el) => (cardRefs.current[i] = el)}
+                      onClick={() => handleSelectDay(i, true)}
+                      className={`w-[78vw] sm:w-[calc((100%-24px)/3)] flex-shrink-0 snap-start p-4 rounded-2xl border text-left transition cursor-pointer relative flex flex-col justify-between ${
+                        isSelected
+                          ? 'bg-gradient-to-b from-sky-50 via-white to-sky-50/30 border-sky-400 ring-2 ring-sky-400/40 shadow-sm'
+                          : 'bg-slate-50/80 border-slate-200 hover:bg-white hover:border-slate-300 shadow-2xs'
+                      }`}
+                    >
+                      <div>
+                        {/* Top Day Header */}
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span
+                            className={`text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                              isSelected
+                                ? 'bg-sky-600 text-white shadow-2xs'
+                                : 'bg-slate-200 text-slate-700'
+                            }`}
+                          >
+                            Day {f.tripDayNumber} of 6
+                          </span>
+                          <span className="text-xs font-black text-slate-800 font-mono">
+                            {f.dayName.split(' ')[0]}, {f.formattedDate}
+                          </span>
+                        </div>
+
+                        {/* Itinerary details with generous room */}
+                        <div className="mt-1">
+                          <div className="text-sm font-black text-slate-900 leading-snug line-clamp-1">
+                            {f.tripTitle}
+                          </div>
+                          <div className="text-[11px] text-sky-700 font-semibold bg-sky-100/60 px-2 py-0.5 rounded-md mt-1 inline-block border border-sky-200/50 line-clamp-1">
+                            {f.tripHighlight}
+                          </div>
+                        </div>
+
+                        {/* Big Weather Icon & Temps */}
+                        <div className="my-3.5 flex items-center justify-between bg-white/70 p-2.5 rounded-xl border border-slate-100">
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-3xl shadow-2xs flex-shrink-0">
+                              <i className={`fa-solid ${f.icon}`}></i>
+                            </div>
+                            <div>
+                              <div className="flex items-baseline">
+                                <span className="text-2xl font-black text-slate-900 font-mono">
+                                  {toDisplayTemp(f.tempMax)}°
+                                </span>
+                                <span className="text-sm font-bold text-slate-400 font-mono ml-1.5">
+                                  / {toDisplayTemp(f.tempMin)}°
+                                </span>
+                              </div>
+                              <div className="text-xs font-bold text-slate-700 truncate mt-0.5">
+                                {f.condition}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bottom stats bar */}
+                      <div className="pt-2.5 border-t border-slate-200/80 flex items-center justify-between text-[11px]">
                         <span
-                          className={`text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
-                            isSelected
-                              ? 'bg-sky-600 text-white shadow-2xs'
-                              : 'bg-slate-200 text-slate-700'
+                          className={`font-black flex items-center gap-1 ${
+                            f.precipProb >= 35 ? 'text-blue-600' : 'text-slate-600'
                           }`}
                         >
-                          Day {f.tripDayNumber} of 6
+                          <i className="fa-solid fa-droplet text-[10px] text-blue-500"></i>
+                          <span>{f.precipProb}% Rain</span>
                         </span>
-                        <span className="text-xs font-black text-slate-800 font-mono">
-                          {f.dayName.split(' ')[0]}, {f.formattedDate}
+                        <span className="text-slate-500 font-medium">
+                          <i className="fa-solid fa-wind mr-1 text-slate-400"></i>
+                          {f.windSpeedMax} mph
+                        </span>
+                        <span className="text-slate-500 font-medium">
+                          <i className="fa-solid fa-sun mr-1 text-amber-500"></i>
+                          UV {f.uvIndexMax}/10
                         </span>
                       </div>
 
-                      {/* Itinerary details with generous room */}
-                      <div className="mt-1">
-                        <div className="text-sm font-black text-slate-900 leading-snug line-clamp-1">
-                          {f.tripTitle}
-                        </div>
-                        <div className="text-[11px] text-sky-700 font-semibold bg-sky-100/60 px-2 py-0.5 rounded-md mt-1 inline-block border border-sky-200/50 line-clamp-1">
-                          {f.tripHighlight}
-                        </div>
-                      </div>
-
-                      {/* Big Weather Icon & Temps */}
-                      <div className="my-3.5 flex items-center justify-between bg-white/70 p-2.5 rounded-xl border border-slate-100">
-                        <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-3xl shadow-2xs flex-shrink-0">
-                            <i className={`fa-solid ${f.icon}`}></i>
-                          </div>
-                          <div>
-                            <div className="flex items-baseline">
-                              <span className="text-2xl font-black text-slate-900 font-mono">
-                                {toDisplayTemp(f.tempMax)}°
-                              </span>
-                              <span className="text-sm font-bold text-slate-400 font-mono ml-1.5">
-                                / {toDisplayTemp(f.tempMin)}°
-                              </span>
-                            </div>
-                            <div className="text-xs font-bold text-slate-700 truncate mt-0.5">
-                              {f.condition}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Bottom stats bar */}
-                    <div className="pt-2.5 border-t border-slate-200/80 flex items-center justify-between text-[11px]">
-                      <span
-                        className={`font-black flex items-center gap-1 ${
-                          f.precipProb >= 35 ? 'text-blue-600' : 'text-slate-600'
-                        }`}
-                      >
-                        <i className="fa-solid fa-droplet text-[10px] text-blue-500"></i>
-                        <span>{f.precipProb}% Rain</span>
-                      </span>
-                      <span className="text-slate-500 font-medium">
-                        <i className="fa-solid fa-wind mr-1 text-slate-400"></i>
-                        {f.windSpeedMax} mph
-                      </span>
-                      <span className="text-slate-500 font-medium">
-                        <i className="fa-solid fa-sun mr-1 text-amber-500"></i>
-                        UV {f.uvIndexMax}/10
-                      </span>
-                    </div>
-
-                    {isSelected && (
-                      <span className="absolute -top-1.5 -right-1.5 px-2 py-0.5 rounded-full bg-sky-600 text-white font-black text-[9px] shadow-xs flex items-center gap-1">
-                        <i className="fa-solid fa-check text-[8px]"></i>
-                        <span>Viewing</span>
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+                      {isSelected && (
+                        <span className="absolute -top-1.5 -right-1.5 px-2 py-0.5 rounded-full bg-sky-600 text-white font-black text-[9px] shadow-xs flex items-center gap-1">
+                          <i className="fa-solid fa-check text-[8px]"></i>
+                          <span>Viewing</span>
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Detailed Insight for Selected Day */}
@@ -826,8 +1010,8 @@ export const WeatherCard: React.FC = () => {
             <div className="bg-slate-50/90 p-4 rounded-xl border border-slate-200 animate-fadeIn space-y-3">
               {/* Hourly Toolbar: Day selector tabs & filter options */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-200">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs font-black uppercase tracking-wider text-slate-700 mr-1 flex items-center gap-1">
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 max-w-full flex-nowrap sm:flex-wrap">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-700 mr-1 flex items-center gap-1 flex-shrink-0">
                     <i className="fa-regular fa-clock text-sky-600"></i>
                     Hourly For:
                   </span>
@@ -836,8 +1020,8 @@ export const WeatherCard: React.FC = () => {
                     return (
                       <button
                         key={f.date || idx}
-                        onClick={() => handleSelectDay(idx)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                        onClick={() => handleSelectDay(idx, false)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer border flex-shrink-0 ${
                           isTabActive
                             ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
                             : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
