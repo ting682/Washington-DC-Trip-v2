@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import {
+  LeaderboardEntry,
+  subscribeGameLeaderboard,
+  recordHighScore,
+} from '../../services/leaderboardService';
 
-export interface LeaderboardEntry {
-  id: string;
-  name: string;
-  score: number;
-  difficulty: 'easy' | 'medium' | 'hard';
-  date: string;
-}
+export type { LeaderboardEntry };
 
 interface PandaLeaderboardProps {
   gameKey: string;
@@ -16,34 +15,7 @@ interface PandaLeaderboardProps {
   onClearScore?: () => void;
 }
 
-const DEFAULT_SCORES: Record<string, LeaderboardEntry[]> = {
-  'feast-frenzy': [
-    { id: '1', name: 'Ethan', score: 260, difficulty: 'medium', date: 'Oct 14' },
-    { id: '2', name: 'Luke', score: 210, difficulty: 'easy', date: 'Oct 14' },
-    { id: '3', name: 'Mom', score: 180, difficulty: 'easy', date: 'Oct 14' },
-    { id: '4', name: 'Dad', score: 150, difficulty: 'hard', date: 'Oct 14' },
-  ],
-  'zoo-dash': [
-    { id: '1', name: 'Luke', score: 340, difficulty: 'medium', date: 'Oct 14' },
-    { id: '2', name: 'Ethan', score: 310, difficulty: 'hard', date: 'Oct 14' },
-    { id: '3', name: 'Dad', score: 220, difficulty: 'medium', date: 'Oct 14' },
-    { id: '4', name: 'Mom', score: 190, difficulty: 'easy', date: 'Oct 14' },
-  ],
-  'bamboo-bounce': [
-    { id: '1', name: 'Ethan', score: 420, difficulty: 'hard', date: 'Oct 14' },
-    { id: '2', name: 'Mom', score: 380, difficulty: 'medium', date: 'Oct 14' },
-    { id: '3', name: 'Luke', score: 350, difficulty: 'easy', date: 'Oct 14' },
-    { id: '4', name: 'Dad', score: 290, difficulty: 'easy', date: 'Oct 14' },
-  ],
-  'bubble-slinger': [
-    { id: '1', name: 'Luke', score: 480, difficulty: 'easy', date: 'Oct 14' },
-    { id: '2', name: 'Ethan', score: 450, difficulty: 'medium', date: 'Oct 14' },
-    { id: '3', name: 'Mom', score: 390, difficulty: 'medium', date: 'Oct 14' },
-    { id: '4', name: 'Dad', score: 320, difficulty: 'hard', date: 'Oct 14' },
-  ],
-};
-
-const FAMILY_PRESETS = ['Ethan', 'Luke', 'Mom', 'Dad', 'Grandma', 'Panda Fan'];
+const FAMILY_PRESETS = ['Anna', 'Amy', 'Ethan', 'Luke', 'Mom', 'Dad', 'Grandma', 'Panda Fan'];
 
 export const PandaLeaderboard: React.FC<PandaLeaderboardProps> = ({
   gameKey,
@@ -52,70 +24,90 @@ export const PandaLeaderboard: React.FC<PandaLeaderboardProps> = ({
   latestScore,
   onClearScore,
 }) => {
-  const storageKey = `dc_leaderboard_${gameKey}`;
-  const [entries, setEntries] = useState<LeaderboardEntry[]>(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return DEFAULT_SCORES[gameKey] || [];
-  });
-
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [isCloudSynced, setIsCloudSynced] = useState(false);
   const [filter, setFilter] = useState<'all' | 'easy' | 'medium' | 'hard'>('all');
   const [playerName, setPlayerName] = useState('');
   const [savedThisRound, setSavedThisRound] = useState(false);
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [restoreName, setRestoreName] = useState('Anna');
+  const [restoreScore, setRestoreScore] = useState<number | ''>(450);
+  const [restoreDiff, setRestoreDiff] = useState<'easy' | 'medium' | 'hard'>('medium');
 
+  // Real-time synchronization with Cloud Firestore (persists across all devices & deployments)
   useEffect(() => {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(entries));
-    } catch (e) {}
-  }, [entries, storageKey]);
+    const unsubscribe = subscribeGameLeaderboard(gameKey, (updatedEntries, synced) => {
+      setEntries(updatedEntries);
+      setIsCloudSynced(synced);
+    });
+    return () => unsubscribe();
+  }, [gameKey]);
 
   useEffect(() => {
     setSavedThisRound(false);
   }, [latestScore]);
 
-  const handleSaveScore = (nameToSave: string) => {
+  const handleSaveScore = async (nameToSave: string) => {
     const finalName = (nameToSave || playerName).trim() || 'Junior Explorer';
     if (latestScore === null || latestScore <= 0 || savedThisRound) return;
 
     const newEntry: LeaderboardEntry = {
-      id: Date.now().toString(),
+      id: `${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       name: finalName,
       score: latestScore,
       difficulty: currentDifficulty,
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      timestamp: Date.now(),
     };
-
-    setEntries(prev => {
-      const updated = [...prev, newEntry].sort((a, b) => b.score - a.score).slice(0, 15);
-      return updated;
-    });
 
     setSavedThisRound(true);
     setPlayerName('');
     if (onClearScore) onClearScore();
+
+    // Persist immediately to Cloud Firestore and local storage
+    const updated = await recordHighScore(gameKey, newEntry);
+    setEntries(updated);
   };
 
-  const handleResetLeaderboard = () => {
-    if (window.confirm('Reset this game leaderboard back to default family records?')) {
-      const defaults = DEFAULT_SCORES[gameKey] || [];
-      setEntries(defaults);
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(defaults));
-      } catch (e) {}
-    }
+  const handleRestorePastScore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (restoreScore === '' || Number(restoreScore) <= 0) return;
+
+    const restoredEntry: LeaderboardEntry = {
+      id: `${Date.now()}_restored`,
+      name: restoreName.trim() || 'Daughter',
+      score: Number(restoreScore),
+      difficulty: restoreDiff,
+      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      timestamp: Date.now(),
+    };
+
+    const updated = await recordHighScore(gameKey, restoredEntry);
+    setEntries(updated);
+    setShowRestoreModal(false);
   };
 
   const filteredEntries = entries.filter(e => filter === 'all' || e.difficulty === filter);
 
   return (
     <div className="bg-slate-900 text-white rounded-3xl p-5 border border-slate-800 shadow-md">
-      <div className="flex items-center justify-between gap-2 mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-2">
           <span className="text-xl">🏆</span>
           <div>
-            <h4 className="font-black text-sm text-amber-300">Family Hall of Fame</h4>
+            <div className="flex items-center gap-2">
+              <h4 className="font-black text-sm text-amber-300">Family Hall of Fame</h4>
+              {isCloudSynced ? (
+                <span className="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  ☁️ Cloud Saved
+                </span>
+              ) : (
+                <span className="text-[9px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">
+                  💾 Local Cached
+                </span>
+              )}
+            </div>
             <p className="text-[10px] text-slate-400">{gameTitle} High Scores</p>
           </div>
         </div>
@@ -147,7 +139,7 @@ export const PandaLeaderboard: React.FC<PandaLeaderboardProps> = ({
                 {currentDifficulty}
               </span>
             </span>
-            <span className="text-[10px] text-slate-400">Save to Leaderboard</span>
+            <span className="text-[10px] text-slate-400">Save to Cloud Leaderboard</span>
           </div>
 
           <div className="flex flex-wrap gap-1.5 mb-2.5">
@@ -172,7 +164,7 @@ export const PandaLeaderboard: React.FC<PandaLeaderboardProps> = ({
           >
             <input
               type="text"
-              placeholder="Or type any name..."
+              placeholder="Or type player name..."
               value={playerName}
               onChange={e => setPlayerName(e.target.value)}
               className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
@@ -188,13 +180,88 @@ export const PandaLeaderboard: React.FC<PandaLeaderboardProps> = ({
         </div>
       )}
 
+      {/* Manual Restore / Add Past Score Modal Form */}
+      {showRestoreModal && (
+        <form
+          onSubmit={handleRestorePastScore}
+          className="bg-slate-800/90 border border-amber-400/40 rounded-2xl p-4 mb-4 text-xs space-y-3"
+        >
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-amber-300 flex items-center gap-1.5">
+              <span>🔄</span> Restore or Add High Score
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowRestoreModal(false)}
+              className="text-slate-400 hover:text-white cursor-pointer text-sm"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-300">
+            Enter your daughter's name and high score below to permanently save it to Cloud Firestore across all family devices:
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div>
+              <label className="block text-[10px] text-slate-400 mb-1">Player Name</label>
+              <input
+                type="text"
+                value={restoreName}
+                onChange={e => setRestoreName(e.target.value)}
+                placeholder="e.g. Daughter"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] text-slate-400 mb-1">Score (Points)</label>
+              <input
+                type="number"
+                value={restoreScore}
+                onChange={e => setRestoreScore(e.target.value ? Number(e.target.value) : '')}
+                placeholder="e.g. 450"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-amber-400"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] text-slate-400 mb-1">Difficulty</label>
+              <select
+                value={restoreDiff}
+                onChange={e => setRestoreDiff(e.target.value as any)}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400"
+              >
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setShowRestoreModal(false)}
+              className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-200 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-lg cursor-pointer"
+            >
+              Save Forever in Cloud ☁️
+            </button>
+          </div>
+        </form>
+      )}
+
       {/* Leaderboard Table */}
       {filteredEntries.length === 0 ? (
         <div className="py-6 text-center text-xs text-slate-500">
           No records yet for this difficulty! Play a round to claim 1st place!
         </div>
       ) : (
-        <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 text-xs">
+        <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1 text-xs">
           {filteredEntries.map((entry, index) => {
             const isTop3 = index < 3;
             const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
@@ -230,12 +297,12 @@ export const PandaLeaderboard: React.FC<PandaLeaderboardProps> = ({
       )}
 
       <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
-        <span>Family records stay saved on this device.</span>
+        <span>☁️ Scores permanently sync across devices & future revisions.</span>
         <button
-          onClick={handleResetLeaderboard}
-          className="hover:text-rose-400 transition cursor-pointer underline"
+          onClick={() => setShowRestoreModal(true)}
+          className="text-amber-400 hover:text-amber-300 transition cursor-pointer underline flex items-center gap-1 font-bold"
         >
-          Reset Scores
+          <span>➕ Restore / Add Score</span>
         </button>
       </div>
     </div>

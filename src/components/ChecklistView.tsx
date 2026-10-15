@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { PackingItem, PassItem } from '../types';
+import { saveChecklistToCloud } from '../services/checklistService';
 
 interface ChecklistViewProps {
   packingItems: PackingItem[];
@@ -47,6 +48,12 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         item.id === id ? { ...item, checked: !item.checked } : item
       );
       localStorage.setItem('dc_packing_items_v12', JSON.stringify(updated));
+      saveChecklistToCloud({
+        packing: updated,
+        passes: passesItems,
+        categories: packingCategories,
+      });
+
       const tItem = updated.find(i => i.id === id);
       if (tItem) {
         onSyncItemChange({
@@ -63,6 +70,11 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     setPackingItems(prev => {
       const updated = prev.filter(item => item.id !== id);
       localStorage.setItem('dc_packing_items_v12', JSON.stringify(updated));
+      saveChecklistToCloud({
+        packing: updated,
+        passes: passesItems,
+        categories: packingCategories,
+      });
       onSyncItemChange({ list: 'packing', op: 'delete', item: { id } });
       return updated;
     });
@@ -81,6 +93,11 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     setPackingItems(prev => {
       const updated = [...prev, newItem];
       localStorage.setItem('dc_packing_items_v12', JSON.stringify(updated));
+      saveChecklistToCloud({
+        packing: updated,
+        passes: passesItems,
+        categories: packingCategories,
+      });
       onSyncItemChange({ list: 'packing', op: 'upsert', item: newItem });
       return updated;
     });
@@ -97,6 +114,11 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     const updated = [...packingCategories, val];
     setPackingCategories(updated);
     localStorage.setItem('dc_categories_v12', JSON.stringify(updated));
+    saveChecklistToCloud({
+      packing: packingItems,
+      passes: passesItems,
+      categories: updated,
+    });
     setNewCategoryName('');
   };
 
@@ -121,6 +143,11 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         item.category === oldName ? { ...item, category: cleanName } : item
       );
       localStorage.setItem('dc_packing_items_v12', JSON.stringify(updatedItems));
+      saveChecklistToCloud({
+        packing: updatedItems,
+        passes: passesItems,
+        categories: updatedCats,
+      });
       onSyncItemChange({ list: 'packing', op: 'renameCategory', from: oldName, to: cleanName });
       return updatedItems;
     });
@@ -144,6 +171,11 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     setPackingItems(prev => {
       const updated = prev.map(i => (i.id === itemId ? { ...i, category: matchedCat } : i));
       localStorage.setItem('dc_packing_items_v12', JSON.stringify(updated));
+      saveChecklistToCloud({
+        packing: updated,
+        passes: passesItems,
+        categories: packingCategories,
+      });
       onSyncItemChange({
         list: 'packing',
         op: 'upsert',
@@ -169,7 +201,17 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         const updated = prev.map(item =>
           item.category === catToRemove ? { ...item, category: fallbackCat } : item
         );
+        const updatedCats = packingCategories.filter(c => c !== catToRemove);
+        setPackingCategories(updatedCats);
         localStorage.setItem('dc_packing_items_v12', JSON.stringify(updated));
+        localStorage.setItem('dc_categories_v12', JSON.stringify(updatedCats));
+
+        saveChecklistToCloud({
+          packing: updated,
+          passes: passesItems,
+          categories: updatedCats,
+        });
+
         affectedItems.forEach(it =>
           onSyncItemChange({
             list: 'packing',
@@ -179,10 +221,16 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         );
         return updated;
       });
+    } else {
+      const updatedCats = packingCategories.filter(c => c !== catToRemove);
+      setPackingCategories(updatedCats);
+      localStorage.setItem('dc_categories_v12', JSON.stringify(updatedCats));
+      saveChecklistToCloud({
+        packing: packingItems,
+        passes: passesItems,
+        categories: updatedCats,
+      });
     }
-    const updatedCats = packingCategories.filter(c => c !== catToRemove);
-    setPackingCategories(updatedCats);
-    localStorage.setItem('dc_categories_v12', JSON.stringify(updatedCats));
   };
 
   const handleTogglePass = (id: string) => {
@@ -191,6 +239,12 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         item.id === id ? { ...item, checked: !item.checked } : item
       );
       localStorage.setItem('dc_passes_items_v12', JSON.stringify(updated));
+      saveChecklistToCloud({
+        packing: packingItems,
+        passes: updated,
+        categories: packingCategories,
+      });
+
       const pItem = updated.find(i => i.id === id);
       if (pItem) {
         onSyncItemChange({ list: 'passes', op: 'upsert', item: { id, checked: pItem.checked } });

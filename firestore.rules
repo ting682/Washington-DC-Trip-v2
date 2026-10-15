@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.matches('^[a-zA-Z0-9_\\-]+$') && id.size() <= 64;
+    }
+
+    function isValidScore(data) {
+      return data.keys().hasAll(['gameKey', 'name', 'score', 'difficulty', 'date', 'timestamp'])
+        && data.keys().hasOnly(['gameKey', 'name', 'score', 'difficulty', 'date', 'timestamp', 'id'])
+        && data.gameKey is string && data.gameKey.size() > 0 && data.gameKey.size() <= 32
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 32
+        && data.score is number && data.score >= 0 && data.score < 10000000
+        && data.difficulty is string && data.difficulty in ['easy', 'medium', 'hard']
+        && data.date is string && data.date.size() <= 32
+        && data.timestamp is number;
+    }
+
+    // High Scores Collection for Family Games
+    match /game_scores/{scoreId} {
+      allow read: if true;
+      allow create: if isValidId(scoreId) && isValidScore(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // Aggregated Leaderboards
+    match /leaderboards/{gameKey} {
+      allow read: if true;
+      allow write: if isValidId(gameKey);
+    }
+
+    // Shared Family Trip Checklists (Packing & Passes - No Passcode Required)
+    match /trip_checklists/{docId} {
+      allow read, write: if isValidId(docId);
+    }
+  }
+}

@@ -19,6 +19,13 @@ import {
   initialTripData,
 } from './data/tripData';
 import { DinnerItem, PackingItem, PassItem } from './types';
+import {
+  subscribeChecklist,
+  saveChecklistToCloud,
+  getLocalChecklist,
+  mergeChecklistData,
+  saveLocalChecklist,
+} from './services/checklistService';
 
 const SHEET_API =
   'https://script.google.com/macros/s/AKfycbxOk6PWWv7F7CDydHwzbKfuq9W6Pl68zMG7fzBNQmI2M3qkMEnxKFhNrMvVCJ1M7MZ3rg/exec';
@@ -51,47 +58,31 @@ export const App: React.FC = () => {
     }
   });
 
-  // Persistent Checklists
-  const [packingCategories, setPackingCategories] = useState<string[]>(() => {
-    try {
-      const saved =
-        localStorage.getItem('dc_categories_v12') || localStorage.getItem('dc_categories_v11');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {}
-    return defaultCategories;
-  });
+  // Persistent Checklists with Cloud Firestore & local cache (Zero passcode required)
+  const initialChecklist = useMemo(() => getLocalChecklist(), []);
+  const [packingCategories, setPackingCategories] = useState<string[]>(initialChecklist.categories);
+  const [packingItems, setPackingItems] = useState<PackingItem[]>(initialChecklist.packing);
+  const [passesItems, setPassesItems] = useState<PassItem[]>(initialChecklist.passes);
+  const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
 
-  const [packingItems, setPackingItems] = useState<PackingItem[]>(() => {
-    try {
-      const saved =
-        localStorage.getItem('dc_packing_items_v12') || localStorage.getItem('dc_packing_items_v11');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {}
-    return defaultPacking;
-  });
-
-  const [passesItems, setPassesItems] = useState<PassItem[]>(() => {
-    try {
-      const saved =
-        localStorage.getItem('dc_passes_items_v12') || localStorage.getItem('dc_passes_items_v11');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {}
-    return defaultPasses;
-  });
-
-  // Google Sheet Sync State
+  // Google Sheet & Cloud Sync State
   const [syncState, setSyncState] = useState<'idle' | 'saving' | 'offline' | 'nocode'>('idle');
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [queueCount, setQueueCount] = useState<number>(0);
+
+  // Real-time synchronization with Cloud Firestore (shared across all devices & future revisions)
+  useEffect(() => {
+    const unsubscribe = subscribeChecklist((data, isCloud) => {
+      setPackingItems(data.packing);
+      setPassesItems(data.passes);
+      setPackingCategories(data.categories);
+      setIsCloudSynced(isCloud);
+      if (data.updatedAt) {
+        setLastSyncTime(new Date(data.updatedAt));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Compute Itinerary Days with custom dinners & distances
   const computedDays = useMemo(() => {
@@ -215,7 +206,7 @@ export const App: React.FC = () => {
       category: i.category || 'Essentials',
       checked: !!i.checked,
     }));
-    const remotePasses: PassItem[] = data.passes.map((i: any) => ({
+    const remotePasses: PassItem[] = (data.passes || []).map((i: any) => ({
       id: i.id,
       title: i.title,
       time: i.time,
@@ -223,20 +214,19 @@ export const App: React.FC = () => {
       checked: !!i.checked,
     }));
 
-    setPackingItems(remotePacking);
-    setPassesItems(remotePasses);
+    // Merge Google Drive master snapshot with current local and cloud checklist items
+    const mergedChecklist = mergeChecklistData(
+      { packing: remotePacking, passes: remotePasses },
+      getLocalChecklist()
+    );
 
-    setPackingCategories(prev => {
-      const merged = [...prev];
-      remotePacking.forEach(i => {
-        if (!merged.includes(i.category)) merged.push(i.category);
-      });
-      localStorage.setItem('dc_categories_v12', JSON.stringify(merged));
-      return merged;
-    });
+    setPackingItems(mergedChecklist.packing);
+    setPassesItems(mergedChecklist.passes);
+    setPackingCategories(mergedChecklist.categories);
 
-    localStorage.setItem('dc_packing_items_v12', JSON.stringify(remotePacking));
-    localStorage.setItem('dc_passes_items_v12', JSON.stringify(remotePasses));
+    // Automatically sync into Cloud Firestore so all family devices share this snapshot
+    saveChecklistToCloud(mergedChecklist, 'Google Drive Master List');
+    saveLocalChecklist(mergedChecklist);
     setLastSyncTime(new Date());
   };
 
@@ -309,28 +299,25 @@ export const App: React.FC = () => {
   // Sync Status Messages
   let syncStatusText = '';
   let syncActionText: string | null = null;
-  if (syncState === 'nocode') {
-    syncStatusText = `<span><i class="fa-solid fa-cloud text-slate-400"></i> Showing the family Master List. Your changes stay on this phone${
-      queueCount ? ` (${queueCount} waiting)` : ''
-    }.</span>`;
-    syncActionText = 'Enter passcode';
+  if (isCloudSynced) {
+    const t = lastSyncTime
+      ? lastSyncTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      : '';
+    syncStatusText = `<span><i class="fa-solid fa-cloud text-emerald-500"></i> <strong>Family Master List Synced</strong> (Cloud active · No passcode needed!) · ${t}</span>`;
+    syncActionText = 'Sync Cloud';
   } else if (syncState === 'saving') {
     syncStatusText = `<span><i class="fa-solid fa-rotate fa-spin text-indigo-500"></i> Saving to the family Master List…</span>`;
   } else if (syncState === 'offline') {
-    syncStatusText = `<span><i class="fa-solid fa-wifi text-amber-500"></i> Offline${
-      queueCount
-        ? ` · ${queueCount} change${queueCount > 1 ? 's' : ''} will save when you're back online`
-        : ' · showing the last saved list'
-    }</span>`;
+    syncStatusText = `<span><i class="fa-solid fa-wifi text-amber-500"></i> Offline · showing saved list (will sync when back online)</span>`;
     syncActionText = 'Retry';
   } else {
     const t = lastSyncTime
       ? lastSyncTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
       : '';
-    syncStatusText = `<span><i class="fa-solid fa-cloud text-emerald-500"></i> Synced with the family Master List${
+    syncStatusText = `<span><i class="fa-solid fa-cloud-arrow-up text-blue-500"></i> <strong>Family Master List Active</strong>${
       t ? ` · ${t}` : ''
     }</span>`;
-    syncActionText = 'Refresh';
+    syncActionText = 'Sync Cloud';
   }
 
   const currentMood = DAY_MOODS[moodKey] || DAY_MOODS.midday;
@@ -377,11 +364,12 @@ export const App: React.FC = () => {
             syncStatusText={syncStatusText}
             syncActionText={syncActionText}
             onSyncAction={() => {
-              if (syncState === 'nocode') {
-                promptFamilyCode();
-              } else {
-                syncWithSheet();
-              }
+              saveChecklistToCloud({
+                packing: packingItems,
+                passes: passesItems,
+                categories: packingCategories,
+              });
+              syncWithSheet();
             }}
             onSyncItemChange={queueSyncOp}
           />
