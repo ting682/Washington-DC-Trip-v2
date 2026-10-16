@@ -1,19 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DAY_METADATA, DEFAULT_TRIP_PHOTOS } from '../../data/defaultPhotos';
-import { googleSignIn, logout } from '../../services/googleAuth';
-import { fetchGooglePhotosForTrip } from '../../services/googlePhotosService';
-import { GoogleAccountInfo, TripPhoto } from '../../types';
+import {
+  deletePhotoFromCloud,
+  subscribeToCloudPhotos,
+  uploadPhotosToCloud,
+} from '../../services/cloudPhotoService';
+import { TripPhoto } from '../../types';
 import { ExportSharedAlbumModal } from './ExportSharedAlbumModal';
 import { PhotoLightboxModal } from './PhotoLightboxModal';
-
-// Storage keys
-const COMBINED_STORAGE_KEY = 'dc_family_trip_google_photos_v1';
-const ACC1_PHOTOS_KEY = 'dc_trip_google_photos_acc1';
-const ACC2_PHOTOS_KEY = 'dc_trip_google_photos_acc2';
-const ACC1_INFO_KEY = 'dc_trip_google_info_acc1';
-const ACC2_INFO_KEY = 'dc_trip_google_info_acc2';
-const ACC1_TOKEN_KEY = 'dc_trip_google_token_acc1';
-const ACC2_TOKEN_KEY = 'dc_trip_google_token_acc2';
 
 interface TripPhotoGalleryProps {
   activeDayFilter?: number | 'all';
@@ -26,47 +20,38 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
   onSelectItineraryDay,
   inlineMode = false,
 }) => {
-  // Account 1 (Me / Husband / Ting)
-  const [acc1Info, setAcc1Info] = useState<GoogleAccountInfo>({
-    id: 'account1',
-    customLabel: 'Ting (Me)',
-    email: null,
-    displayName: null,
-    photoURL: null,
-    lastSyncTime: null,
-    photoCount: 0,
-  });
-  const [acc1Photos, setAcc1Photos] = useState<TripPhoto[]>([]);
-  const [acc1Token, setAcc1Token] = useState<string | null>(null);
-  const [isAcc1Connecting, setIsAcc1Connecting] = useState(false);
-  const [isAcc1Syncing, setIsAcc1Syncing] = useState(false);
-  const [isEditingAcc1Label, setIsEditingAcc1Label] = useState(false);
-  const [tempAcc1Label, setTempAcc1Label] = useState('');
+  // Cloud-synced family photos from Firestore
+  const [cloudPhotos, setCloudPhotos] = useState<TripPhoto[]>([]);
+  const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
 
-  // Account 2 (Wife / Partner)
-  const [acc2Info, setAcc2Info] = useState<GoogleAccountInfo>({
-    id: 'account2',
-    customLabel: "Wife's Account",
-    email: null,
-    displayName: null,
-    photoURL: null,
-    lastSyncTime: null,
-    photoCount: 0,
+  // Uploader selector state
+  const [activeUploader, setActiveUploader] = useState<'account1' | 'account2' | 'family'>('account1');
+  const [acc1Label, setAcc1Label] = useState<string>(() => {
+    return localStorage.getItem('dc_photo_uploader_acc1') || 'Ting (Me)';
   });
-  const [acc2Photos, setAcc2Photos] = useState<TripPhoto[]>([]);
-  const [acc2Token, setAcc2Token] = useState<string | null>(null);
-  const [isAcc2Connecting, setIsAcc2Connecting] = useState(false);
-  const [isAcc2Syncing, setIsAcc2Syncing] = useState(false);
-  const [isEditingAcc2Label, setIsEditingAcc2Label] = useState(false);
-  const [tempAcc2Label, setTempAcc2Label] = useState('');
+  const [acc2Label, setAcc2Label] = useState<string>(() => {
+    return localStorage.getItem('dc_photo_uploader_acc2') || 'Wife';
+  });
+  const [isEditingLabels, setIsEditingLabels] = useState(false);
+  const [tempAcc1Label, setTempAcc1Label] = useState(acc1Label);
+  const [tempAcc2Label, setTempAcc2Label] = useState(acc2Label);
 
-  // Status & Feedback
+  // Target Day selector for upload
+  const [uploadTargetDay, setUploadTargetDay] = useState<number | 'auto'>('auto');
+
+  // Manual Upload Progress & Status
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Gallery Filters & View
+  // Drag-and-drop state
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Filters & Views
   const [selectedDayFilter, setSelectedDayFilter] = useState<
-    number | 'all' | 'google' | 'acc1' | 'acc2' | 'landmarks'
+    number | 'all' | 'cloud' | 'acc1' | 'acc2' | 'landmarks'
   >(initialDayFilter);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grouped' | 'grid'>('grouped');
@@ -77,6 +62,13 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
   // Method 3: End of Trip Google Shared Album & ZIP Export Modal state
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
+  // Cloud Drive & Shared Album links
+  const [cloudStorageUrl, setCloudStorageUrl] = useState<string>(() => {
+    return localStorage.getItem('dc_trip_cloud_storage_url') || 'https://drive.google.com';
+  });
+  const [isEditingCloudUrl, setIsEditingCloudUrl] = useState(false);
+  const [tempCloudUrl, setTempCloudUrl] = useState(cloudStorageUrl);
+
   // Sync initialDayFilter when prop changes
   useEffect(() => {
     if (initialDayFilter !== undefined) {
@@ -84,322 +76,152 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
     }
   }, [initialDayFilter]);
 
-  // Load saved accounts & photos on mount
+  // Subscribe to real-time Cloud Photos (Firestore)
   useEffect(() => {
-    try {
-      // Load Acc 1
-      const savedInfo1 = localStorage.getItem(ACC1_INFO_KEY);
-      if (savedInfo1) {
-        const parsed = JSON.parse(savedInfo1);
-        setAcc1Info(parsed);
+    const unsubscribe = subscribeToCloudPhotos(
+      photos => {
+        setCloudPhotos(photos);
+        setIsCloudConnected(true);
+      },
+      err => {
+        console.warn('Cloud photo subscription notice:', err);
+        setIsCloudConnected(false);
       }
-      const savedPhotos1 = localStorage.getItem(ACC1_PHOTOS_KEY);
-      if (savedPhotos1) {
-        const parsed = JSON.parse(savedPhotos1);
-        if (Array.isArray(parsed)) setAcc1Photos(parsed);
-      }
-      const savedToken1 = localStorage.getItem(ACC1_TOKEN_KEY);
-      if (savedToken1) setAcc1Token(savedToken1);
+    );
 
-      // Load Acc 2
-      const savedInfo2 = localStorage.getItem(ACC2_INFO_KEY);
-      if (savedInfo2) {
-        const parsed = JSON.parse(savedInfo2);
-        setAcc2Info(parsed);
-      }
-      const savedPhotos2 = localStorage.getItem(ACC2_PHOTOS_KEY);
-      if (savedPhotos2) {
-        const parsed = JSON.parse(savedPhotos2);
-        if (Array.isArray(parsed)) setAcc2Photos(parsed);
-      }
-      const savedToken2 = localStorage.getItem(ACC2_TOKEN_KEY);
-      if (savedToken2) setAcc2Token(savedToken2);
-
-      // Fallback migration: If old single-account photos exist and acc1 has none
-      if (!savedPhotos1) {
-        const legacy = localStorage.getItem(COMBINED_STORAGE_KEY);
-        if (legacy) {
-          const parsed = JSON.parse(legacy);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setAcc1Photos(parsed);
-            localStorage.setItem(ACC1_PHOTOS_KEY, JSON.stringify(parsed));
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Error loading cached Google Photos accounts:', e);
-    }
+    return () => unsubscribe();
   }, []);
 
-  // Update combined storage whenever acc1 or acc2 photos change
-  useEffect(() => {
-    const combinedGoogle = [...acc1Photos, ...acc2Photos];
-    try {
-      localStorage.setItem(COMBINED_STORAGE_KEY, JSON.stringify(combinedGoogle));
-    } catch (e) {
-      console.warn('Error saving combined Google Photos:', e);
-    }
-  }, [acc1Photos, acc2Photos]);
+  // Save uploader labels
+  const handleSaveLabels = () => {
+    const trim1 = tempAcc1Label.trim() || 'Ting (Me)';
+    const trim2 = tempAcc2Label.trim() || 'Wife';
+    setAcc1Label(trim1);
+    setAcc2Label(trim2);
+    localStorage.setItem('dc_photo_uploader_acc1', trim1);
+    localStorage.setItem('dc_photo_uploader_acc2', trim2);
+    setIsEditingLabels(false);
+    setStatusMessage('Uploader names updated!');
+    setTimeout(() => setStatusMessage(null), 3000);
+  };
 
-  // Save helper for Account 1
-  const updateAccount1Data = (
-    infoUpdates: Partial<GoogleAccountInfo>,
-    photos?: TripPhoto[],
-    token?: string | null
-  ) => {
-    setAcc1Info(prev => {
-      const next = { ...prev, ...infoUpdates, photoCount: photos ? photos.length : prev.photoCount };
-      localStorage.setItem(ACC1_INFO_KEY, JSON.stringify(next));
-      return next;
-    });
-    if (photos !== undefined) {
-      setAcc1Photos(photos);
-      localStorage.setItem(ACC1_PHOTOS_KEY, JSON.stringify(photos));
-    }
-    if (token !== undefined) {
-      setAcc1Token(token);
-      if (token) localStorage.setItem(ACC1_TOKEN_KEY, token);
-      else localStorage.removeItem(ACC1_TOKEN_KEY);
+  // Save Cloud Storage Folder link
+  const handleSaveCloudUrl = () => {
+    const trimmed = tempCloudUrl.trim();
+    if (trimmed) {
+      setCloudStorageUrl(trimmed);
+      localStorage.setItem('dc_trip_cloud_storage_url', trimmed);
+      setIsEditingCloudUrl(false);
+      setStatusMessage('Cloud Storage / Google Drive link saved!');
+      setTimeout(() => setStatusMessage(null), 3000);
     }
   };
 
-  // Save helper for Account 2
-  const updateAccount2Data = (
-    infoUpdates: Partial<GoogleAccountInfo>,
-    photos?: TripPhoto[],
-    token?: string | null
-  ) => {
-    setAcc2Info(prev => {
-      const next = { ...prev, ...infoUpdates, photoCount: photos ? photos.length : prev.photoCount };
-      localStorage.setItem(ACC2_INFO_KEY, JSON.stringify(next));
-      return next;
-    });
-    if (photos !== undefined) {
-      setAcc2Photos(photos);
-      localStorage.setItem(ACC2_PHOTOS_KEY, JSON.stringify(photos));
+  // Process manual files for cloud upload
+  const handleProcessFiles = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (fileArray.length === 0) {
+      setErrorMessage('Please select valid image files (JPG, PNG, WebP, HEIC).');
+      setTimeout(() => setErrorMessage(null), 4000);
+      return;
     }
-    if (token !== undefined) {
-      setAcc2Token(token);
-      if (token) localStorage.setItem(ACC2_TOKEN_KEY, token);
-      else localStorage.removeItem(ACC2_TOKEN_KEY);
-    }
-  };
 
-  // Import photos logic for an account
-  const runPhotosImport = async (
-    target: 'account1' | 'account2',
-    token: string,
-    ownerName: string,
-    ownerEmail?: string | null
-  ) => {
-    const isAcc1 = target === 'account1';
-    if (isAcc1) setIsAcc1Syncing(true);
-    else setIsAcc2Syncing(true);
-
+    setIsUploading(true);
     setErrorMessage(null);
-    setStatusMessage(`Searching Google Photos for ${ownerName} with face detection filter...`);
+    setUploadProgress({ current: 0, total: fileArray.length });
+    setStatusMessage(`Uploading ${fileArray.length} photo(s) to Cloud Storage...`);
+
+    const uploaderName =
+      activeUploader === 'account1'
+        ? acc1Label
+        : activeUploader === 'account2'
+        ? acc2Label
+        : 'Family';
 
     try {
-      const imported = await fetchGooglePhotosForTrip(token, {
-        year: 2026,
-        requireFaces: true,
-        includeRecentFallback: true,
-        accountOwner: target,
-        accountOwnerName: ownerName,
-        accountOwnerEmail: ownerEmail || undefined,
+      const uploaded = await uploadPhotosToCloud(fileArray, {
+        accountOwner: activeUploader,
+        accountOwnerName: uploaderName,
+        targetDayIndex: uploadTargetDay,
+        onProgress: (current, total) => {
+          setUploadProgress({ current, total });
+        },
       });
-
-      const timeNow = new Date().toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      });
-
-      if (isAcc1) {
-        updateAccount1Data({ lastSyncTime: timeNow, photoCount: imported.length }, imported, token);
-      } else {
-        updateAccount2Data({ lastSyncTime: timeNow, photoCount: imported.length }, imported, token);
-      }
 
       setStatusMessage(
-        `Successfully synced ${imported.length} face-verified photo(s) from ${ownerName}!`
+        `Successfully uploaded ${uploaded.length} photo(s) to Cloud Storage! Synced in real-time.`
       );
-    } catch (err: any) {
-      console.error(`Error importing photos for ${target}:`, err);
-      setErrorMessage(
-        `Unable to fetch photos for ${ownerName}. The Google token may have expired. Try clicking "Connect / Re-sync".`
-      );
-    } finally {
-      if (isAcc1) setIsAcc1Syncing(false);
-      else setIsAcc2Syncing(false);
-      setTimeout(() => setStatusMessage(null), 5000);
-    }
-  };
-
-  // Connect Account 1
-  const handleConnectAcc1 = async () => {
-    setIsAcc1Connecting(true);
-    setErrorMessage(null);
-    try {
-      const res = await googleSignIn({ promptAccountSelect: true });
-      if (res && res.accessToken) {
-        const displayName = res.user.displayName || 'Ting';
-        const label = acc1Info.customLabel || displayName;
-        updateAccount1Data(
-          {
-            displayName: res.user.displayName,
-            email: res.user.email,
-            photoURL: res.user.photoURL,
-          },
-          undefined,
-          res.accessToken
-        );
-        await runPhotosImport('account1', res.accessToken, label, res.user.email);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
     } catch (err: any) {
-      console.error('Account 1 sign-in failed:', err);
-      if (err.code !== 'auth/popup-closed-by-user') {
-        setErrorMessage('Authentication was not completed. Please try again.');
-      }
+      console.error('Cloud upload error:', err);
+      setErrorMessage(`Upload error: ${err.message || 'Could not complete cloud upload'}`);
     } finally {
-      setIsAcc1Connecting(false);
+      setIsUploading(false);
+      setUploadProgress(null);
+      setTimeout(() => setStatusMessage(null), 6000);
     }
   };
 
-  // Connect Account 2 (Wife)
-  const handleConnectAcc2 = async () => {
-    setIsAcc2Connecting(true);
-    setErrorMessage(null);
-    try {
-      const res = await googleSignIn({ promptAccountSelect: true });
-      if (res && res.accessToken) {
-        const displayName = res.user.displayName || "Wife";
-        const label = acc2Info.customLabel || `${displayName}'s Account`;
-        updateAccount2Data(
-          {
-            displayName: res.user.displayName,
-            email: res.user.email,
-            photoURL: res.user.photoURL,
-          },
-          undefined,
-          res.accessToken
-        );
-        await runPhotosImport('account2', res.accessToken, label, res.user.email);
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleProcessFiles(e.dataTransfer.files);
+    }
+  };
+
+  // Delete photo from Cloud Storage
+  const handleDeletePhoto = async (photoId: string) => {
+    if (confirm('Are you sure you want to delete this photo from Cloud Storage? It will be removed for everyone.')) {
+      try {
+        await deletePhotoFromCloud(photoId);
+        setStatusMessage('Photo removed from Cloud Storage.');
+        if (lightboxPhotoId === photoId) {
+          setLightboxPhotoId(null);
+        }
+        setTimeout(() => setStatusMessage(null), 3500);
+      } catch (e: any) {
+        setErrorMessage(`Delete failed: ${e.message}`);
+        setTimeout(() => setErrorMessage(null), 4000);
       }
-    } catch (err: any) {
-      console.error('Account 2 sign-in failed:', err);
-      if (err.code !== 'auth/popup-closed-by-user') {
-        setErrorMessage("Authentication for Wife's account was not completed. Please try again.");
-      }
-    } finally {
-      setIsAcc2Connecting(false);
     }
   };
 
-  // Disconnect Account 1
-  const handleDisconnectAcc1 = () => {
-    if (confirm(`Disconnect ${acc1Info.customLabel} and remove their imported photos from the gallery?`)) {
-      updateAccount1Data(
-        {
-          email: null,
-          displayName: null,
-          photoURL: null,
-          lastSyncTime: null,
-          photoCount: 0,
-        },
-        [],
-        null
-      );
-      setStatusMessage(`${acc1Info.customLabel} was disconnected.`);
-      setTimeout(() => setStatusMessage(null), 3500);
-    }
-  };
-
-  // Disconnect Account 2
-  const handleDisconnectAcc2 = () => {
-    if (confirm(`Disconnect ${acc2Info.customLabel} and remove their imported photos from the gallery?`)) {
-      updateAccount2Data(
-        {
-          email: null,
-          displayName: null,
-          photoURL: null,
-          lastSyncTime: null,
-          photoCount: 0,
-        },
-        [],
-        null
-      );
-      setStatusMessage(`${acc2Info.customLabel} was disconnected.`);
-      setTimeout(() => setStatusMessage(null), 3500);
-    }
-  };
-
-  // Sync both accounts
-  const handleSyncBoth = async () => {
-    if (acc1Token) {
-      await runPhotosImport('account1', acc1Token, acc1Info.customLabel, acc1Info.email);
-    }
-    if (acc2Token) {
-      await runPhotosImport('account2', acc2Token, acc2Info.customLabel, acc2Info.email);
-    }
-  };
-
-  // Save updated label for Account 1
-  const handleSaveAcc1Label = () => {
-    if (tempAcc1Label.trim()) {
-      const newLabel = tempAcc1Label.trim();
-      // Also update photos tags and captions
-      const updatedPhotos = acc1Photos.map(p => ({
-        ...p,
-        accountOwnerName: newLabel,
-        title: p.title.replace(acc1Info.customLabel, newLabel),
-        caption: p.caption?.replace(acc1Info.customLabel, newLabel),
-        credit: `${newLabel} · Google Photos`,
-      }));
-      updateAccount1Data({ customLabel: newLabel }, updatedPhotos);
-    }
-    setIsEditingAcc1Label(false);
-  };
-
-  // Save updated label for Account 2
-  const handleSaveAcc2Label = () => {
-    if (tempAcc2Label.trim()) {
-      const newLabel = tempAcc2Label.trim();
-      const updatedPhotos = acc2Photos.map(p => ({
-        ...p,
-        accountOwnerName: newLabel,
-        title: p.title.replace(acc2Info.customLabel, newLabel),
-        caption: p.caption?.replace(acc2Info.customLabel, newLabel),
-        credit: `${newLabel} · Google Photos`,
-      }));
-      updateAccount2Data({ customLabel: newLabel }, updatedPhotos);
-    }
-    setIsEditingAcc2Label(false);
-  };
-
-  // Delete individual photo
-  const handleDeletePhoto = (photoId: string) => {
-    if (acc1Photos.some(p => p.id === photoId)) {
-      const filtered = acc1Photos.filter(p => p.id !== photoId);
-      updateAccount1Data({ photoCount: filtered.length }, filtered);
-    } else if (acc2Photos.some(p => p.id === photoId)) {
-      const filtered = acc2Photos.filter(p => p.id !== photoId);
-      updateAccount2Data({ photoCount: filtered.length }, filtered);
-    }
-  };
-
-  // Combine default landmark photos with photos from BOTH accounts
+  // Combine default landmark photos with Cloud Storage photos
   const allPhotos = useMemo(() => {
-    return [...acc1Photos, ...acc2Photos, ...DEFAULT_TRIP_PHOTOS];
-  }, [acc1Photos, acc2Photos]);
+    return [...cloudPhotos, ...DEFAULT_TRIP_PHOTOS];
+  }, [cloudPhotos]);
 
-  const totalGooglePhotos = acc1Photos.length + acc2Photos.length;
+  // Breakdown counts
+  const acc1Count = useMemo(() => {
+    return cloudPhotos.filter(p => p.accountOwner === 'account1').length;
+  }, [cloudPhotos]);
+
+  const acc2Count = useMemo(() => {
+    return cloudPhotos.filter(p => p.accountOwner === 'account2').length;
+  }, [cloudPhotos]);
 
   // Filter photos
   const filteredPhotos = useMemo(() => {
     return allPhotos.filter(photo => {
       // Source / Day Filter
-      if (selectedDayFilter === 'google') {
+      if (selectedDayFilter === 'cloud') {
         if (!photo.uploadedByUser) return false;
       } else if (selectedDayFilter === 'acc1') {
         if (photo.accountOwner !== 'account1') return false;
@@ -464,37 +286,35 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
       {/* Top Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
         <div className="flex items-center gap-3">
-          <span className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center text-lg shadow-2xs border border-indigo-100">
-            <i className="fa-solid fa-camera-retro"></i>
+          <span className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg shadow-2xs border border-blue-100">
+            <i className="fa-solid fa-cloud-arrow-up"></i>
           </span>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="serif text-lg sm:text-xl font-bold text-slate-900">
-                Combined Family Trip Photos
+                Family Cloud Photo Storage
               </h3>
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full">
-                {allPhotos.length} Total ({totalGooglePhotos} from 2 Google Accounts)
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                <i className="fa-solid fa-circle text-[6px] text-emerald-500 animate-pulse"></i>
+                <span>{cloudPhotos.length} Cloud Uploads ({allPhotos.length} Total)</span>
               </span>
             </div>
             <p className="text-xs text-slate-500">
-              Merging Google Photos from both you &amp; your wife into a unified itinerary gallery
+              Manual cloud photo upload &amp; real-time family sync across all devices
             </p>
           </div>
         </div>
 
-        {/* Actions: Method 3 Export & View Mode Toggle */}
+        {/* Top Actions: Export ZIP & View Mode Toggle */}
         <div className="flex items-center gap-2.5 self-start sm:self-auto flex-wrap">
-          {/* Collect into Google Shared Album / ZIP (Method 3) */}
+          {/* Collect into ZIP / Google Drive */}
           <button
             onClick={() => setIsExportModalOpen(true)}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-rose-600 hover:from-blue-700 hover:to-rose-700 text-white font-bold text-xs shadow-2xs hover:shadow-md transition-all active:scale-95 cursor-pointer"
-            title="Create Google Shared Album or download .ZIP archive"
+            title="Download .ZIP archive or export shared album"
           >
-            <i className="fa-solid fa-share-nodes text-xs"></i>
-            <span>Collect / Shared Album</span>
-            <span className="text-[9px] bg-white/20 text-white font-black px-1.5 py-0.5 rounded-full hidden sm:inline">
-              Method 3
-            </span>
+            <i className="fa-solid fa-file-zipper text-xs"></i>
+            <span>Download All (.ZIP)</span>
           </button>
 
           {/* View Mode Toggle */}
@@ -521,452 +341,435 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
         </div>
       </div>
 
-      {/* DUAL GOOGLE PHOTOS CONNECTIONS HUB */}
-      <div className="bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/40 rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-2xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      {/* Status Messages */}
+      {statusMessage && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 animate-fadeIn">
+          <i className="fa-solid fa-circle-check text-emerald-600 shrink-0"></i>
+          <span>{statusMessage}</span>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center justify-between gap-2 animate-fadeIn">
           <div className="flex items-center gap-2">
+            <i className="fa-solid fa-circle-exclamation text-rose-600 shrink-0"></i>
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-rose-400 hover:text-rose-700 p-1 cursor-pointer"
+          >
+            <i className="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      )}
+
+      {/* CLOUD STORAGE & MANUAL UPLOAD STUDIO */}
+      <div className="bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/30 rounded-2xl p-4 sm:p-5 border border-blue-200/80 shadow-2xs space-y-4">
+        {/* Header & Cloud Status */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-blue-100/80">
+          <div className="flex items-center gap-2.5">
             <span className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center text-sm shadow-2xs">
-              <i className="fa-brands fa-google"></i>
+              <i className="fa-solid fa-cloud"></i>
             </span>
             <div>
               <h4 className="serif font-bold text-sm text-slate-900 flex items-center gap-2">
-                <span>Dual Google Photos Sync</span>
-                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <i className="fa-solid fa-shield-heart text-[9px]"></i>
-                  <span>Face Filter Active · Screenshots Blocked</span>
+                <span>Cloud Storage Manual Uploader</span>
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                    isCloudConnected
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  <i
+                    className={`fa-solid ${
+                      isCloudConnected ? 'fa-signal text-emerald-600' : 'fa-triangle-exclamation text-amber-600'
+                    } text-[9px]`}
+                  ></i>
+                  <span>{isCloudConnected ? 'Live Cloud Sync' : 'Offline Cache'}</span>
                 </span>
               </h4>
               <p className="text-[11px] text-slate-500">
-                Connect both accounts separately. Pictures taken during the trip (Oct 15–20) are automatically fetched and merged.
+                Upload pictures from your phone camera roll, computer, or Google Drive folder.
               </p>
             </div>
           </div>
 
-          {acc1Info.email && acc2Info.email && (
-            <button
-              onClick={handleSyncBoth}
-              disabled={isAcc1Syncing || isAcc2Syncing}
-              className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer self-start sm:self-auto"
+          {/* Quick counts */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-900 font-bold text-[11px] flex items-center gap-1.5 shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+              <span>{acc1Label}:</span>
+              <span className="text-blue-700 font-extrabold">{acc1Count}</span>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-white border border-rose-200 text-rose-900 font-bold text-[11px] flex items-center gap-1.5 shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+              <span>{acc2Label}:</span>
+              <span className="text-rose-600 font-extrabold">{acc2Count}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Upload Controls Configuration Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          {/* Uploader selection */}
+          <div className="bg-white rounded-xl p-3 border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                <i className="fa-solid fa-user-check text-blue-600"></i>
+                <span>Uploading As:</span>
+              </span>
+              <button
+                onClick={() => setIsEditingLabels(!isEditingLabels)}
+                className="text-[10px] text-blue-600 hover:underline font-semibold cursor-pointer"
+              >
+                {isEditingLabels ? 'Cancel' : 'Edit Names'}
+              </button>
+            </div>
+
+            {!isEditingLabels ? (
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveUploader('account1')}
+                  className={`py-1.5 px-2 rounded-lg font-bold text-xs transition cursor-pointer truncate flex items-center justify-center gap-1 ${
+                    activeUploader === 'account1'
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <i className="fa-solid fa-user text-[10px]"></i>
+                  <span className="truncate">{acc1Label}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveUploader('account2')}
+                  className={`py-1.5 px-2 rounded-lg font-bold text-xs transition cursor-pointer truncate flex items-center justify-center gap-1 ${
+                    activeUploader === 'account2'
+                      ? 'bg-rose-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <i className="fa-solid fa-heart text-[10px]"></i>
+                  <span className="truncate">{acc2Label}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveUploader('family')}
+                  className={`py-1.5 px-2 rounded-lg font-bold text-xs transition cursor-pointer truncate flex items-center justify-center gap-1 ${
+                    activeUploader === 'family'
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <i className="fa-solid fa-people-roof text-[10px]"></i>
+                  <span className="truncate">Family</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-12 text-[10px] text-slate-500">Slot 1:</span>
+                  <input
+                    type="text"
+                    value={tempAcc1Label}
+                    onChange={e => setTempAcc1Label(e.target.value)}
+                    className="flex-1 px-2 py-0.5 border border-slate-300 rounded text-xs"
+                    placeholder="Ting"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-12 text-[10px] text-slate-500">Slot 2:</span>
+                  <input
+                    type="text"
+                    value={tempAcc2Label}
+                    onChange={e => setTempAcc2Label(e.target.value)}
+                    className="flex-1 px-2 py-0.5 border border-slate-300 rounded text-xs"
+                    placeholder="Wife"
+                  />
+                </div>
+                <button
+                  onClick={handleSaveLabels}
+                  className="w-full mt-1 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-xs cursor-pointer"
+                >
+                  Save Names
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Target Itinerary Day selection */}
+          <div className="bg-white rounded-xl p-3 border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                <i className="fa-solid fa-calendar-day text-blue-600"></i>
+                <span>Assign to Day:</span>
+              </span>
+              <span className="text-[10px] text-slate-400">Auto-detects from photo date</span>
+            </div>
+
+            <select
+              value={uploadTargetDay}
+              onChange={e => {
+                const val = e.target.value;
+                setUploadTargetDay(val === 'auto' ? 'auto' : parseInt(val, 10));
+              }}
+              className="w-full py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
-              <i className={`fa-solid fa-arrows-rotate text-[11px] ${isAcc1Syncing || isAcc2Syncing ? 'fa-spin' : ''}`}></i>
-              <span>Sync Both Accounts</span>
-            </button>
+              <option value="auto">✨ Auto-Detect Day (from photo date)</option>
+              <option value="0">Day 1 · Oct 15 (Arrival &amp; Georgetown Dinner)</option>
+              <option value="1">Day 2 · Oct 16 (National Mall &amp; Monuments)</option>
+              <option value="2">Day 3 · Oct 17 (Smithsonian Natural History &amp; Air)</option>
+              <option value="3">Day 4 · Oct 18 (National Zoo &amp; Cathedral)</option>
+              <option value="4">Day 5 · Oct 19 (Arlington &amp; Potomac Cruise)</option>
+              <option value="5">Day 6 · Oct 20 (US Capitol, Library &amp; DCA Fly)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Drag & Drop Manual Upload Zone */}
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`relative border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-all duration-200 flex flex-col items-center justify-center ${
+            isDragging
+              ? 'border-blue-500 bg-blue-50/80 scale-[1.01]'
+              : 'border-blue-300 hover:border-blue-500 bg-white hover:bg-blue-50/20'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={e => {
+              if (e.target.files && e.target.files.length > 0) {
+                handleProcessFiles(e.target.files);
+              }
+            }}
+            className="hidden"
+          />
+
+          <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-2xl shadow-xs mb-3 group-hover:scale-110 transition-transform">
+            <i className={`fa-solid ${isUploading ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-up'}`}></i>
+          </div>
+
+          <h5 className="font-bold text-sm sm:text-base text-slate-900 mb-1">
+            {isUploading
+              ? 'Uploading to Cloud Storage...'
+              : 'Click or Drag & Drop Photos to Upload'}
+          </h5>
+
+          <p className="text-xs text-slate-500 max-w-md">
+            Select one or multiple photos from your camera roll, computer, or downloaded Google Photos. Photos are automatically compressed for high-speed cloud sync.
+          </p>
+
+          <div className="mt-3 flex items-center gap-2 flex-wrap justify-center">
+            <span className="text-[11px] font-bold bg-blue-100 text-blue-800 px-3 py-1 rounded-full flex items-center gap-1.5 shadow-2xs">
+              <i className="fa-solid fa-plus text-[10px]"></i>
+              <span>Select Photos (Multi-select)</span>
+            </span>
+            <span className="text-[11px] font-semibold text-slate-500">
+              Uploading as: <strong className="text-slate-800">{activeUploader === 'account1' ? acc1Label : activeUploader === 'account2' ? acc2Label : 'Family'}</strong>
+            </span>
+          </div>
+
+          {/* Upload Progress Bar */}
+          {uploadProgress && (
+            <div className="w-full max-w-xs mt-4">
+              <div className="flex justify-between text-[11px] font-bold text-blue-900 mb-1">
+                <span>Uploading...</span>
+                <span>
+                  {uploadProgress.current} / {uploadProgress.total}
+                </span>
+              </div>
+              <div className="w-full h-2 bg-blue-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%`,
+                  }}
+                ></div>
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Two Connection Cards (Husband & Wife) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Slot 1: Ting (Me) */}
-          <div className="bg-white rounded-xl border border-blue-200/90 p-3.5 shadow-2xs flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between pb-2 border-b border-blue-50">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-md bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold font-mono">
-                    1
-                  </span>
-                  {!isEditingAcc1Label ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-xs text-blue-950">
-                        {acc1Info.customLabel}
-                      </span>
-                      <button
-                        onClick={() => {
-                          setTempAcc1Label(acc1Info.customLabel);
-                          setIsEditingAcc1Label(true);
-                        }}
-                        className="text-slate-400 hover:text-blue-600 text-[10px] p-0.5 cursor-pointer"
-                        title="Rename label"
-                      >
-                        <i className="fa-solid fa-pen"></i>
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="text"
-                        value={tempAcc1Label}
-                        onChange={e => setTempAcc1Label(e.target.value)}
-                        className="text-xs px-1.5 py-0.5 border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 w-28"
-                        autoFocus
-                      />
-                      <button
-                        onClick={handleSaveAcc1Label}
-                        className="text-emerald-600 hover:text-emerald-700 text-xs px-1"
-                        title="Save"
-                      >
-                        <i className="fa-solid fa-check"></i>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    acc1Info.email
-                      ? 'bg-blue-100 text-blue-800'
-                      : 'bg-slate-100 text-slate-500'
-                  }`}
+        {/* Cloud Storage / Google Drive Link Row */}
+        <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span className="text-[11px] font-bold text-slate-500 shrink-0 flex items-center gap-1">
+              <i className="fa-brands fa-google-drive text-emerald-600"></i>
+              <span>Shared Cloud Folder:</span>
+            </span>
+            {!isEditingCloudUrl ? (
+              <div className="flex items-center gap-2 truncate">
+                <a
+                  href={cloudStorageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-blue-600 hover:underline truncate font-mono"
                 >
-                  {acc1Info.email ? 'Connected' : 'Not Connected'}
-                </span>
-              </div>
-
-              {/* Status details */}
-              <div className="py-2.5">
-                {acc1Info.email ? (
-                  <div className="flex items-center gap-2.5">
-                    {acc1Info.photoURL ? (
-                      <img
-                        src={acc1Info.photoURL}
-                        alt="Avatar"
-                        referrerPolicy="no-referrer"
-                        className="w-8 h-8 rounded-full border border-blue-200"
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-xs">
-                        {acc1Info.customLabel.charAt(0)}
-                      </div>
-                    )}
-                    <div className="text-xs">
-                      <p className="font-semibold text-slate-900 truncate max-w-[190px]">
-                        {acc1Info.displayName || acc1Info.email}
-                      </p>
-                      <p className="text-[11px] text-slate-500 truncate max-w-[190px]">
-                        {acc1Info.email}
-                      </p>
-                      <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-2">
-                        <span className="font-bold text-blue-700">
-                          {acc1Photos.length} face photos
-                        </span>
-                        {acc1Info.lastSyncTime && (
-                          <span>Synced {acc1Info.lastSyncTime}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 py-1">
-                    Connect your primary Google account to automatically import your photos with faces.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-              {!acc1Info.email ? (
+                  {cloudStorageUrl}
+                </a>
                 <button
-                  onClick={handleConnectAcc1}
-                  disabled={isAcc1Connecting}
-                  className="w-full py-1.5 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-2xs transition flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                  onClick={() => {
+                    setTempCloudUrl(cloudStorageUrl);
+                    setIsEditingCloudUrl(true);
+                  }}
+                  className="text-slate-400 hover:text-blue-600 text-[10px] p-0.5 cursor-pointer"
+                  title="Edit link"
                 >
-                  <i className="fa-brands fa-google text-xs"></i>
-                  <span>{isAcc1Connecting ? 'Connecting...' : `Connect ${acc1Info.customLabel}`}</span>
+                  <i className="fa-solid fa-pen"></i>
                 </button>
-              ) : (
-                <>
-                  <button
-                    onClick={() => {
-                      if (acc1Token) {
-                        runPhotosImport('account1', acc1Token, acc1Info.customLabel, acc1Info.email);
-                      } else {
-                        handleConnectAcc1();
-                      }
-                    }}
-                    disabled={isAcc1Syncing}
-                    className="flex-1 py-1.5 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-2xs transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <i className={`fa-solid fa-arrows-rotate text-[11px] ${isAcc1Syncing ? 'fa-spin' : ''}`}></i>
-                    <span>{isAcc1Syncing ? 'Syncing Faces...' : 'Sync Photos'}</span>
-                  </button>
-                  <button
-                    onClick={handleDisconnectAcc1}
-                    className="p-1.5 px-2.5 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition cursor-pointer"
-                    title="Disconnect account"
-                  >
-                    <i className="fa-solid fa-right-from-bracket"></i>
-                  </button>
-                </>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 flex-1 max-w-md">
+                <input
+                  type="url"
+                  value={tempCloudUrl}
+                  onChange={e => setTempCloudUrl(e.target.value)}
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  className="text-xs px-2 py-1 border border-blue-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 flex-1 font-mono text-[11px]"
+                  autoFocus
+                />
+                <button
+                  onClick={handleSaveCloudUrl}
+                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs cursor-pointer"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => setIsEditingCloudUrl(false)}
+                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Slot 2: Wife's Account */}
-          <div className="bg-white rounded-xl border border-rose-200/90 p-3.5 shadow-2xs flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between pb-2 border-b border-rose-50">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-md bg-rose-100 text-rose-700 flex items-center justify-center text-xs font-bold font-mono">
-                    2
-                  </span>
-                  {!isEditingAcc2Label ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-xs text-rose-950">
-                        {acc2Info.customLabel}
-                      </span>
-                      <button
-                        onClick={() => {
-                          setTempAcc2Label(acc2Info.customLabel);
-                          setIsEditingAcc2Label(true);
-                        }}
-                        className="text-slate-400 hover:text-rose-600 text-[10px] p-0.5 cursor-pointer"
-                        title="Rename label"
-                      >
-                        <i className="fa-solid fa-pen"></i>
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="text"
-                        value={tempAcc2Label}
-                        onChange={e => setTempAcc2Label(e.target.value)}
-                        className="text-xs px-1.5 py-0.5 border border-rose-300 rounded focus:outline-none focus:ring-1 focus:ring-rose-500 w-28"
-                        autoFocus
-                      />
-                      <button
-                        onClick={handleSaveAcc2Label}
-                        className="text-emerald-600 hover:text-emerald-700 text-xs px-1"
-                        title="Save"
-                      >
-                        <i className="fa-solid fa-check"></i>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    acc2Info.email
-                      ? 'bg-rose-100 text-rose-800'
-                      : 'bg-slate-100 text-slate-500'
-                  }`}
-                >
-                  {acc2Info.email ? 'Connected' : 'Not Connected'}
-                </span>
-              </div>
-
-              {/* Status details */}
-              <div className="py-2.5">
-                {acc2Info.email ? (
-                  <div className="flex items-center gap-2.5">
-                    {acc2Info.photoURL ? (
-                      <img
-                        src={acc2Info.photoURL}
-                        alt="Avatar"
-                        referrerPolicy="no-referrer"
-                        className="w-8 h-8 rounded-full border border-rose-200"
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-700 font-bold flex items-center justify-center text-xs">
-                        {acc2Info.customLabel.charAt(0)}
-                      </div>
-                    )}
-                    <div className="text-xs">
-                      <p className="font-semibold text-slate-900 truncate max-w-[190px]">
-                        {acc2Info.displayName || acc2Info.email}
-                      </p>
-                      <p className="text-[11px] text-slate-500 truncate max-w-[190px]">
-                        {acc2Info.email}
-                      </p>
-                      <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-2">
-                        <span className="font-bold text-rose-700">
-                          {acc2Photos.length} face photos
-                        </span>
-                        {acc2Info.lastSyncTime && (
-                          <span>Synced {acc2Info.lastSyncTime}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 py-1">
-                    Connect your wife's Google account to combine her photos into the trip itinerary.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-              {!acc2Info.email ? (
-                <button
-                  onClick={handleConnectAcc2}
-                  disabled={isAcc2Connecting}
-                  className="w-full py-1.5 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-2xs transition flex items-center justify-center gap-2 cursor-pointer active:scale-98"
-                >
-                  <i className="fa-brands fa-google text-xs"></i>
-                  <span>{isAcc2Connecting ? 'Connecting...' : `Connect ${acc2Info.customLabel}`}</span>
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={() => {
-                      if (acc2Token) {
-                        runPhotosImport('account2', acc2Token, acc2Info.customLabel, acc2Info.email);
-                      } else {
-                        handleConnectAcc2();
-                      }
-                    }}
-                    disabled={isAcc2Syncing}
-                    className="flex-1 py-1.5 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-2xs transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <i className={`fa-solid fa-arrows-rotate text-[11px] ${isAcc2Syncing ? 'fa-spin' : ''}`}></i>
-                    <span>{isAcc2Syncing ? 'Syncing Faces...' : 'Sync Photos'}</span>
-                  </button>
-                  <button
-                    onClick={handleDisconnectAcc2}
-                    className="p-1.5 px-2.5 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition cursor-pointer"
-                    title="Disconnect account"
-                  >
-                    <i className="fa-solid fa-right-from-bracket"></i>
-                  </button>
-                </>
-              )}
-            </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={cloudStorageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[11px] flex items-center gap-1.5 transition border border-emerald-200"
+            >
+              <i className="fa-brands fa-google-drive"></i>
+              <span>Open Google Drive</span>
+              <i className="fa-solid fa-arrow-up-right-from-square text-[8px]"></i>
+            </a>
+            <a
+              href="https://photos.google.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] flex items-center gap-1.5 transition"
+            >
+              <i className="fa-brands fa-google text-blue-600"></i>
+              <span>Google Photos</span>
+              <i className="fa-solid fa-arrow-up-right-from-square text-[8px]"></i>
+            </a>
           </div>
         </div>
-
-        {/* Method 3: End of Trip Collection & Google Shared Album Card */}
-        <div className="bg-white/95 border border-indigo-200/90 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-          <div className="flex items-start sm:items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-rose-600 text-white flex items-center justify-center shrink-0 shadow-2xs text-sm">
-              <i className="fa-solid fa-wand-magic-sparkles"></i>
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-xs text-slate-900">
-                  End of Trip: Collect into Google Shared Album
-                </span>
-                <span className="text-[9px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full border border-indigo-200">
-                  Method 3
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                Combine all {allPhotos.length} photos ({totalGooglePhotos} Google Photos imports + landmark highlights) into a single collaborative album or download an offline day-by-day .ZIP archive.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setIsExportModalOpen(true)}
-            className="px-3.5 py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-rose-600 hover:from-blue-700 hover:to-rose-700 text-white font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-1.5 shrink-0 transition-all active:scale-95 cursor-pointer"
-          >
-            <i className="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-            <span>Export &amp; Share Album</span>
-          </button>
-        </div>
-
-        {/* Live sync / error notifications */}
-        {statusMessage && (
-          <div className="text-xs bg-white/95 p-2.5 rounded-xl border border-blue-200 text-blue-900 flex items-center gap-2 shadow-2xs">
-            <i className="fa-solid fa-circle-check text-emerald-600"></i>
-            <span className="font-medium">{statusMessage}</span>
-          </div>
-        )}
-
-        {errorMessage && (
-          <div className="text-xs bg-red-50 p-2.5 rounded-xl border border-red-200 text-red-800 flex items-center gap-2 shadow-2xs">
-            <i className="fa-solid fa-circle-exclamation text-red-600"></i>
-            <span>{errorMessage}</span>
-          </div>
-        )}
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        {/* Day and Account Filter Chips */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 text-xs">
+      {/* GALLERY FILTER & SEARCH TOOLBAR */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-2">
+        {/* Filter Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
           <button
             onClick={() => setSelectedDayFilter('all')}
-            className={`filter-chip px-3 py-1.5 rounded-full font-bold cursor-pointer transition flex items-center gap-1 ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition cursor-pointer ${
               selectedDayFilter === 'all'
                 ? 'bg-slate-900 text-white shadow-2xs'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            <span>All Days</span>
-            <span className="text-[10px] opacity-75">({allPhotos.length})</span>
+            All Photos ({allPhotos.length})
+          </button>
+          <button
+            onClick={() => setSelectedDayFilter('cloud')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
+              selectedDayFilter === 'cloud'
+                ? 'bg-blue-600 text-white shadow-2xs'
+                : 'bg-blue-50 text-blue-800 hover:bg-blue-100'
+            }`}
+          >
+            <i className="fa-solid fa-cloud text-[10px]"></i>
+            <span>Cloud Uploads ({cloudPhotos.length})</span>
+          </button>
+          <button
+            onClick={() => setSelectedDayFilter('acc1')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
+              selectedDayFilter === 'acc1'
+                ? 'bg-blue-600 text-white shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <span>{acc1Label} ({acc1Count})</span>
+          </button>
+          <button
+            onClick={() => setSelectedDayFilter('acc2')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition cursor-pointer flex items-center gap-1.5 ${
+              selectedDayFilter === 'acc2'
+                ? 'bg-rose-600 text-white shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <span>{acc2Label} ({acc2Count})</span>
           </button>
 
-          {DAY_METADATA.map(d => {
-            const count = allPhotos.filter(p => p.dayIndex === d.index).length;
-            const isSelected = selectedDayFilter === d.index;
+          <span className="text-slate-300 mx-1">|</span>
+
+          {/* Days 1 to 6 */}
+          {DAY_METADATA.map(day => {
+            const count = allPhotos.filter(p => p.dayIndex === day.index).length;
+            const isSelected = selectedDayFilter === day.index;
             return (
               <button
-                key={d.index}
-                onClick={() => setSelectedDayFilter(d.index)}
-                className={`filter-chip px-3 py-1.5 rounded-full font-bold cursor-pointer transition flex items-center gap-1 ${
+                key={day.index}
+                onClick={() => setSelectedDayFilter(day.index)}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold shrink-0 transition cursor-pointer ${
                   isSelected
-                    ? 'bg-slate-900 text-white shadow-2xs'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                <span>Day {d.index + 1}</span>
-                <span className="text-[10px] opacity-70">({count})</span>
+                Day {day.index + 1} ({count})
               </button>
             );
           })}
 
-          {/* Account 1 specific filter */}
-          {acc1Photos.length > 0 && (
-            <button
-              onClick={() => setSelectedDayFilter('acc1')}
-              className={`filter-chip px-3 py-1.5 rounded-full font-bold cursor-pointer transition flex items-center gap-1 ${
-                selectedDayFilter === 'acc1'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100'
-              }`}
-            >
-              <i className="fa-brands fa-google text-[9px]"></i>
-              <span>{acc1Info.customLabel} ({acc1Photos.length})</span>
-            </button>
-          )}
-
-          {/* Account 2 specific filter */}
-          {acc2Photos.length > 0 && (
-            <button
-              onClick={() => setSelectedDayFilter('acc2')}
-              className={`filter-chip px-3 py-1.5 rounded-full font-bold cursor-pointer transition flex items-center gap-1 ${
-                selectedDayFilter === 'acc2'
-                  ? 'bg-rose-600 text-white shadow-2xs'
-                  : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
-              }`}
-            >
-              <i className="fa-brands fa-google text-[9px]"></i>
-              <span>{acc2Info.customLabel} ({acc2Photos.length})</span>
-            </button>
-          )}
-
-          {/* Combined Google filter */}
-          {totalGooglePhotos > 0 && (
-            <button
-              onClick={() => setSelectedDayFilter('google')}
-              className={`filter-chip px-3 py-1.5 rounded-full font-bold cursor-pointer transition flex items-center gap-1 ${
-                selectedDayFilter === 'google'
-                  ? 'bg-emerald-700 text-white shadow-2xs'
-                  : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
-              }`}
-            >
-              <i className="fa-solid fa-users text-[9px]"></i>
-              <span>All Family ({totalGooglePhotos})</span>
-            </button>
-          )}
+          <button
+            onClick={() => setSelectedDayFilter('landmarks')}
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold shrink-0 transition cursor-pointer ${
+              selectedDayFilter === 'landmarks'
+                ? 'bg-slate-800 text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            Landmarks
+          </button>
         </div>
 
-        {/* Search Input */}
-        <div className="relative min-w-[200px] md:w-56">
-          <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+        {/* Search input */}
+        <div className="relative w-full lg:w-64">
+          <i className="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search sights, people..."
-            className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+            placeholder="Search photos, landmarks, days..."
+            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"
             >
               <i className="fa-solid fa-xmark"></i>
             </button>
@@ -974,147 +777,183 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
         </div>
       </div>
 
-      {/* Main Gallery Content */}
-      {filteredPhotos.length === 0 ? (
-        <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-          <div className="w-12 h-12 rounded-full bg-slate-200 text-slate-400 flex items-center justify-center mx-auto mb-2.5 text-lg">
-            <i className="fa-regular fa-image"></i>
-          </div>
-          <p className="font-bold text-slate-700 text-sm">No photos found for this filter</p>
-          <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-            Try adjusting your search terms or connect both Google Photos accounts above to automatically import photos from the trip!
-          </p>
-        </div>
-      ) : viewMode === 'grouped' && selectedDayFilter === 'all' ? (
-        // GROUPED BY DAY
+      {/* PHOTOS CONTENT: GROUPED BY DAY OR GRID VIEW */}
+      {viewMode === 'grouped' ? (
+        /* GROUPED BY DAY VIEW */
         <div className="space-y-8">
           {DAY_METADATA.map(day => {
-            const dayPhotos = photosByDay[day.index] || [];
-            if (dayPhotos.length === 0) return null;
-
-            const acc1DayCount = dayPhotos.filter(p => p.accountOwner === 'account1').length;
-            const acc2DayCount = dayPhotos.filter(p => p.accountOwner === 'account2').length;
+            const dayPhotosList = photosByDay[day.index] || [];
+            if (selectedDayFilter !== 'all' && selectedDayFilter !== day.index) {
+              return null;
+            }
 
             return (
-              <div key={day.index} className="space-y-3">
-                {/* Day Section Header */}
-                <div className="flex items-center justify-between bg-slate-50 px-4 py-2.5 rounded-xl border border-slate-200">
+              <div
+                key={day.index}
+                className="border border-slate-200 rounded-2xl p-4 sm:p-5 bg-gradient-to-b from-white to-slate-50/50 shadow-2xs space-y-4"
+              >
+                {/* Day Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2.5">
-                    <span className="w-7 h-7 rounded-lg bg-slate-900 text-white flex items-center justify-center text-xs font-bold font-mono">
-                      {day.index + 1}
+                    <span className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-bold text-sm border border-blue-100">
+                      D{day.index + 1}
                     </span>
                     <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="serif font-bold text-sm text-slate-900">
-                          {day.label} — {day.theme}
+                      <div className="flex items-center gap-2">
+                        <h4 className="serif font-bold text-base text-slate-900">
+                          {day.label}: {day.shortName}
                         </h4>
-                        <span className="text-[11px] text-slate-500 font-medium">
-                          ({dayPhotos.length} photos)
+                        <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
+                          {dayPhotosList.length} Photos
                         </span>
-                        {acc1DayCount > 0 && (
-                          <span className="text-[9px] font-bold bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-md">
-                            {acc1Info.customLabel}: {acc1DayCount}
-                          </span>
-                        )}
-                        {acc2DayCount > 0 && (
-                          <span className="text-[9px] font-bold bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded-md">
-                            {acc2Info.customLabel}: {acc2DayCount}
-                          </span>
-                        )}
                       </div>
+                      <p className="text-xs text-slate-500">{day.theme}</p>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
                     {onSelectItineraryDay && (
                       <button
                         onClick={() => onSelectItineraryDay(day.index)}
-                        className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-white border border-blue-200 px-2.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-1"
+                        className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1 rounded-lg transition cursor-pointer flex items-center gap-1"
                       >
-                        <span>View Day Schedule</span>
+                        <span>View Day Itinerary</span>
                         <i className="fa-solid fa-arrow-right text-[10px]"></i>
                       </button>
                     )}
                   </div>
                 </div>
 
-                {/* Day Photos Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
-                  {dayPhotos.map(photo => (
-                    <PhotoCard
-                      key={photo.id}
-                      photo={photo}
-                      onClick={() => setLightboxPhotoId(photo.id)}
-                    />
-                  ))}
-                </div>
+                {/* Photos Grid for this Day */}
+                {dayPhotosList.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                    {dayPhotosList.map(photo => (
+                      <PhotoCard
+                        key={photo.id}
+                        photo={photo}
+                        onSelect={() => setLightboxPhotoId(photo.id)}
+                        onDelete={() => handleDeletePhoto(photo.id)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">
+                    <i className="fa-solid fa-camera text-2xl mb-1 text-slate-300"></i>
+                    <p className="text-xs font-semibold">No photos uploaded for Day {day.index + 1} yet.</p>
+                    <button
+                      onClick={() => {
+                        setUploadTargetDay(day.index);
+                        fileInputRef.current?.click();
+                      }}
+                      className="mt-2 text-xs text-blue-600 font-bold hover:underline cursor-pointer"
+                    >
+                      + Upload photos for this day
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       ) : (
-        // GRID VIEW OR SPECIFIC FILTER
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
-          {filteredPhotos.map(photo => (
-            <PhotoCard
-              key={photo.id}
-              photo={photo}
-              onClick={() => setLightboxPhotoId(photo.id)}
-            />
-          ))}
+        /* ALL PHOTOS GRID VIEW */
+        <div>
+          {filteredPhotos.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
+              {filteredPhotos.map(photo => (
+                <PhotoCard
+                  key={photo.id}
+                  photo={photo}
+                  onSelect={() => setLightboxPhotoId(photo.id)}
+                  onDelete={() => handleDeletePhoto(photo.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+              <i className="fa-solid fa-images text-3xl mb-2 text-slate-300"></i>
+              <p className="text-sm font-semibold text-slate-600">No photos match your current filter.</p>
+              <button
+                onClick={() => {
+                  setSelectedDayFilter('all');
+                  setSearchQuery('');
+                }}
+                className="mt-2 text-xs text-blue-600 font-bold hover:underline cursor-pointer"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {/* Lightbox Modal */}
-      <PhotoLightboxModal
-        photo={currentLightboxPhoto}
-        onClose={() => setLightboxPhotoId(null)}
-        onPrev={handlePrevPhoto}
-        onNext={handleNextPhoto}
-        onDelete={handleDeletePhoto}
-        hasPrev={currentLightboxIndex > 0}
-        hasNext={currentLightboxIndex < filteredPhotos.length - 1}
-        currentIndex={currentLightboxIndex}
-        totalCount={filteredPhotos.length}
-        onOpenExport={() => setIsExportModalOpen(true)}
-      />
+      {currentLightboxPhoto && (
+        <PhotoLightboxModal
+          photo={currentLightboxPhoto}
+          onClose={() => setLightboxPhotoId(null)}
+          onPrev={handlePrevPhoto}
+          onNext={handleNextPhoto}
+          hasPrev={currentLightboxIndex > 0}
+          hasNext={currentLightboxIndex < filteredPhotos.length - 1}
+          currentIndex={currentLightboxIndex}
+          totalCount={filteredPhotos.length}
+          onDelete={
+            currentLightboxPhoto.uploadedByUser
+              ? () => handleDeletePhoto(currentLightboxPhoto.id)
+              : undefined
+          }
+        />
+      )}
 
-      {/* Method 3: End of Trip Google Shared Album & ZIP Export Modal */}
+      {/* Export to Shared Album / ZIP Modal */}
       <ExportSharedAlbumModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         photos={allPhotos}
-        acc1Info={acc1Info}
-        acc2Info={acc2Info}
-        acc1Token={acc1Token}
-        acc2Token={acc2Token}
-        onConnectAccount={(accId) => {
-          setIsExportModalOpen(false);
-          if (accId === 'account1') {
-            handleConnectAcc1();
-          } else {
-            handleConnectAcc2();
-          }
+        acc1Info={{
+          id: 'account1',
+          customLabel: acc1Label,
+          email: null,
+          displayName: acc1Label,
+          photoURL: null,
+          lastSyncTime: null,
+          photoCount: acc1Count,
         }}
+        acc2Info={{
+          id: 'account2',
+          customLabel: acc2Label,
+          email: null,
+          displayName: acc2Label,
+          photoURL: null,
+          lastSyncTime: null,
+          photoCount: acc2Count,
+        }}
+        acc1Token={null}
+        acc2Token={null}
       />
     </div>
   );
 };
 
+/**
+ * Individual Photo Card Component with Cloud Badges & Actions
+ */
 interface PhotoCardProps {
   photo: TripPhoto;
-  onClick: () => void;
+  onSelect: () => void;
+  onDelete?: () => void;
 }
 
-const PhotoCard: React.FC<PhotoCardProps> = ({ photo, onClick }) => {
+const PhotoCard: React.FC<PhotoCardProps> = ({ photo, onSelect, onDelete }) => {
   const [imageError, setImageError] = useState(false);
 
   return (
     <div
-      onClick={onClick}
-      className="group bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 cursor-pointer flex flex-col"
+      onClick={onSelect}
+      className="group relative bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col hover:border-blue-400"
     >
-      {/* Image thumbnail container */}
+      {/* Image Thumbnail Container */}
       <div className="relative aspect-4/3 bg-slate-100 overflow-hidden">
         {!imageError ? (
           <img
@@ -1140,53 +979,70 @@ const PhotoCard: React.FC<PhotoCardProps> = ({ photo, onClick }) => {
           {photo.uploadedByUser && (
             <span
               className={`text-[9px] font-bold text-white px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs ${
-                photo.accountOwner === 'account2' ? 'bg-rose-600' : 'bg-blue-600'
+                photo.accountOwner === 'account2'
+                  ? 'bg-rose-600'
+                  : photo.accountOwner === 'account1'
+                  ? 'bg-blue-600'
+                  : 'bg-indigo-600'
               }`}
             >
-              <i className="fa-brands fa-google text-[8px]"></i>
+              <i className="fa-solid fa-cloud text-[8px]"></i>
               <span className="truncate max-w-[80px]">
-                {photo.accountOwnerName || 'Google Photos'}
+                {photo.accountOwnerName || 'Cloud'}
               </span>
             </span>
           )}
         </div>
 
         {/* Hover overlay hint */}
-        <div className="absolute inset-0 bg-slate-950/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <span className="w-9 h-9 rounded-full bg-white/90 text-slate-800 flex items-center justify-center text-xs shadow-md">
+        <div className="absolute inset-0 bg-slate-950/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+          <span className="w-8 h-8 rounded-full bg-white/90 text-slate-800 flex items-center justify-center text-xs shadow-md">
             <i className="fa-solid fa-expand"></i>
           </span>
+          {onDelete && (
+            <button
+              onClick={e => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="w-8 h-8 rounded-full bg-white/90 hover:bg-rose-600 hover:text-white text-rose-600 flex items-center justify-center text-xs shadow-md transition cursor-pointer"
+              title="Delete photo"
+            >
+              <i className="fa-solid fa-trash-can"></i>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Meta info */}
-      <div className="p-3 flex-1 flex flex-col justify-between">
+      <div className="p-2.5 flex-1 flex flex-col justify-between">
         <div>
-          <h4 className="font-bold text-xs text-slate-900 group-hover:text-blue-600 transition leading-snug line-clamp-1">
+          <h5 className="font-bold text-xs text-slate-900 group-hover:text-blue-600 transition leading-snug line-clamp-1">
             {photo.title}
-          </h4>
+          </h5>
           {photo.caption && (
-            <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+            <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1 leading-relaxed">
               {photo.caption}
             </p>
           )}
         </div>
 
-        {/* Attribution and expand indicator */}
-        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
-          <span className="truncate max-w-[130px] font-medium">
-            {photo.accountOwnerName ? (
-              <span className={photo.accountOwner === 'account2' ? 'text-rose-600 font-bold' : 'text-blue-600 font-bold'}>
+        <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
+          <span className="truncate max-w-[120px] font-semibold">
+            {photo.uploadedByUser ? (
+              <span
+                className={
+                  photo.accountOwner === 'account2' ? 'text-rose-600 font-bold' : 'text-blue-600 font-bold'
+                }
+              >
                 {photo.accountOwnerName}
               </span>
-            ) : photo.tags?.[0] ? (
-              `#${photo.tags[0]}`
             ) : (
-              photo.dayTheme
+              photo.dayTheme || 'Landmark'
             )}
           </span>
-          <span className="text-slate-300 group-hover:text-blue-500 transition font-bold">
-            Expand <i className="fa-solid fa-chevron-right text-[8px] ml-0.5"></i>
+          <span className="text-[9px] text-slate-400">
+            {photo.uploadedAt || 'Oct 2026'}
           </span>
         </div>
       </div>

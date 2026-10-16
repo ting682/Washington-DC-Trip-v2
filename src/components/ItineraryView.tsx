@@ -32,6 +32,25 @@ export const ItineraryView: React.FC<ItineraryViewProps> = ({
   const [syncingGates, setSyncingGates] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
+  // Completed and Collapsed activities state (persisted)
+  const [completedActivities, setCompletedActivities] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('dc_itinerary_completed_v1');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  const [collapsedActivities, setCollapsedActivities] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('dc_itinerary_collapsed_v1');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
   // Reel photo interactions
   const [reelLightboxPhoto, setReelLightboxPhoto] = useState<TripPhoto | null>(null);
   const [galleryVersion, setGalleryVersion] = useState(0);
@@ -42,6 +61,83 @@ export const ItineraryView: React.FC<ItineraryViewProps> = ({
   const uberCount = items.filter(i => i.type === 'transit-uber').length;
   const walkCount = items.filter(i => i.type === 'transit-walk').length;
   const metroCount = items.filter(i => i.type === 'transit-metro').length;
+
+  const getActivityKey = (dayIdx: number, item: TripItem) => {
+    const safeTitle = item.title.replace(/[^a-zA-Z0-9]/g, '_');
+    return `d${dayIdx}_${item.time}_${item.siteKey || safeTitle}`;
+  };
+
+  const handleToggleComplete = (key: string) => {
+    setCompletedActivities(prev => {
+      const isCurrentlyDone = !!prev[key];
+      const nextDone = !isCurrentlyDone;
+      const nextMap = { ...prev, [key]: nextDone };
+      try {
+        localStorage.setItem('dc_itinerary_completed_v1', JSON.stringify(nextMap));
+      } catch (e) {}
+
+      // Auto-collapse when completed; uncollapse when marked incomplete
+      setCollapsedActivities(prevCollapsed => {
+        const nextCollapsed = { ...prevCollapsed, [key]: nextDone };
+        try {
+          localStorage.setItem('dc_itinerary_collapsed_v1', JSON.stringify(nextCollapsed));
+        } catch (e) {}
+        return nextCollapsed;
+      });
+
+      return nextMap;
+    });
+  };
+
+  const handleToggleCollapse = (key: string) => {
+    setCollapsedActivities(prev => {
+      const nextState = !prev[key];
+      const nextMap = { ...prev, [key]: nextState };
+      try {
+        localStorage.setItem('dc_itinerary_collapsed_v1', JSON.stringify(nextMap));
+      } catch (e) {}
+      return nextMap;
+    });
+  };
+
+  const handleCollapseAllCompleted = () => {
+    setCollapsedActivities(prev => {
+      const nextMap = { ...prev };
+      items.forEach((item) => {
+        const key = getActivityKey(activeDayIndex, item);
+        if (completedActivities[key]) {
+          nextMap[key] = true;
+        }
+      });
+      try {
+        localStorage.setItem('dc_itinerary_collapsed_v1', JSON.stringify(nextMap));
+      } catch (e) {}
+      return nextMap;
+    });
+  };
+
+  const handleExpandAll = () => {
+    setCollapsedActivities(prev => {
+      const nextMap = { ...prev };
+      items.forEach((item) => {
+        const key = getActivityKey(activeDayIndex, item);
+        nextMap[key] = false;
+      });
+      try {
+        localStorage.setItem('dc_itinerary_collapsed_v1', JSON.stringify(nextMap));
+      } catch (e) {}
+      return nextMap;
+    });
+  };
+
+  // Day activity completion stats
+  const dayTotalCount = items.length;
+  const dayCompletedCount = items.filter((item) => {
+    const key = getActivityKey(activeDayIndex, item);
+    return !!completedActivities[key];
+  }).length;
+  const dayProgressPercent =
+    dayTotalCount > 0 ? Math.round((dayCompletedCount / dayTotalCount) * 100) : 0;
 
   const filteredItems = items.filter(item => {
     if (activeFilter === 'all') return true;
@@ -248,7 +344,10 @@ export const ItineraryView: React.FC<ItineraryViewProps> = ({
           /* TIMELINE VIEW */
           <>
             {/* Live Weather Forecast */}
-            <WeatherCard />
+            <WeatherCard
+              activeDayIndex={activeDayIndex}
+              onSelectDayIndex={idx => setActiveDayIndex(idx)}
+            />
 
             {/* Day Photo Reel / Teaser */}
             <DayPhotoReel
@@ -275,6 +374,70 @@ export const ItineraryView: React.FC<ItineraryViewProps> = ({
                     {metroCount > 0 ? ` · ${metroCount} Metro` : ''}
                   </span>
                 </div>
+              </div>
+            </div>
+
+            {/* Day Activity Progress & Collapse / Expand Bar */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <span
+                  className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${
+                    dayProgressPercent === 100
+                      ? 'bg-emerald-500 text-white'
+                      : dayCompletedCount > 0
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  <i
+                    className={`fa-solid ${
+                      dayProgressPercent === 100 ? 'fa-circle-check' : 'fa-list-check'
+                    }`}
+                  ></i>
+                </span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-900 text-xs sm:text-sm">
+                      {dayCompletedCount} of {dayTotalCount} stops completed
+                    </span>
+                    <span
+                      className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                        dayProgressPercent === 100
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      {dayProgressPercent}%
+                    </span>
+                  </div>
+                  <div className="w-36 sm:w-52 bg-slate-100 h-2 rounded-full mt-1.5 overflow-hidden border border-slate-200/60">
+                    <div
+                      className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${dayProgressPercent}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0 text-xs">
+                {dayCompletedCount > 0 && (
+                  <button
+                    onClick={handleCollapseAllCompleted}
+                    className="px-2.5 py-1.5 rounded-xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition flex items-center gap-1.5 cursor-pointer text-[11px]"
+                    title="Collapse all completed activities"
+                  >
+                    <i className="fa-solid fa-compress text-[10px]"></i>
+                    <span>Collapse Completed</span>
+                  </button>
+                )}
+                <button
+                  onClick={handleExpandAll}
+                  className="px-2.5 py-1.5 rounded-xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition flex items-center gap-1.5 cursor-pointer text-[11px]"
+                  title="Expand all activities"
+                >
+                  <i className="fa-solid fa-expand text-[10px]"></i>
+                  <span>Expand All</span>
+                </button>
               </div>
             </div>
 
@@ -329,15 +492,24 @@ export const ItineraryView: React.FC<ItineraryViewProps> = ({
                   No activities match this filter.
                 </div>
               ) : (
-                filteredItems.map((item, idx) => (
-                  <TimelineCard
-                    key={idx}
-                    item={item}
-                    dayIndex={activeDayIndex}
-                    onOpenSiteModal={onOpenSiteModal}
-                    onOpenDinnerModal={onOpenDinnerModal}
-                  />
-                ))
+                filteredItems.map((item) => {
+                  const key = getActivityKey(activeDayIndex, item);
+                  const isCompleted = !!completedActivities[key];
+                  const isCollapsed = !!collapsedActivities[key];
+                  return (
+                    <TimelineCard
+                      key={key}
+                      item={item}
+                      dayIndex={activeDayIndex}
+                      isCompleted={isCompleted}
+                      isCollapsed={isCollapsed}
+                      onToggleComplete={() => handleToggleComplete(key)}
+                      onToggleCollapse={() => handleToggleCollapse(key)}
+                      onOpenSiteModal={onOpenSiteModal}
+                      onOpenDinnerModal={onOpenDinnerModal}
+                    />
+                  );
+                })
               )}
             </div>
 
@@ -527,6 +699,10 @@ export const ItineraryView: React.FC<ItineraryViewProps> = ({
 interface TimelineCardProps {
   item: TripItem;
   dayIndex: number;
+  isCompleted: boolean;
+  isCollapsed: boolean;
+  onToggleComplete: () => void;
+  onToggleCollapse: () => void;
   onOpenSiteModal: (siteKey: string) => void;
   onOpenDinnerModal: (dayIndex: number) => void;
 }
@@ -534,6 +710,10 @@ interface TimelineCardProps {
 const TimelineCard: React.FC<TimelineCardProps> = ({
   item,
   dayIndex,
+  isCompleted,
+  isCollapsed,
+  onToggleComplete,
+  onToggleCollapse,
   onOpenSiteModal,
   onOpenDinnerModal,
 }) => {
@@ -544,22 +724,149 @@ const TimelineCard: React.FC<TimelineCardProps> = ({
     </span>
   ) : null;
 
+  // COLLAPSED COMPACT VIEW
+  if (isCollapsed) {
+    let typeLabel = 'Sight';
+    let typeColor = 'bg-indigo-100 text-indigo-800 border-indigo-200';
+    let typeIcon = item.icon || 'fa-landmark text-indigo-600';
+
+    if (item.type === 'bedtime') {
+      typeLabel = 'Night Rest';
+      typeColor = 'bg-amber-100 text-amber-900 border-amber-200';
+      typeIcon = 'fa-moon text-amber-600';
+    } else if (item.type === 'transit-uber') {
+      typeLabel = 'UberXL';
+      typeColor = 'bg-slate-900 text-white border-slate-900';
+      typeIcon = 'fa-car-side text-slate-300';
+    } else if (item.type === 'transit-walk') {
+      typeLabel = 'Walk';
+      typeColor = 'bg-slate-100 text-slate-700 border-slate-200';
+      typeIcon = 'fa-person-walking text-slate-500';
+    } else if (item.type === 'transit-metro') {
+      typeLabel = 'Metro';
+      typeColor = 'bg-blue-100 text-blue-800 border-blue-200';
+      typeIcon = 'fa-train-subway text-blue-600';
+    } else if (item.type === 'flight') {
+      typeLabel = 'Flight';
+      typeColor = 'bg-blue-600 text-white border-blue-600';
+      typeIcon = 'fa-plane text-blue-200';
+    } else if (item.type === 'food') {
+      typeLabel = item.isDinner ? 'Dinner' : 'Food';
+      typeColor = 'bg-rose-100 text-rose-800 border-rose-200';
+      typeIcon = 'fa-utensils text-rose-600';
+    }
+
+    return (
+      <div className="relative pl-9 group">
+        {/* Node checkbox toggle */}
+        <button
+          onClick={onToggleComplete}
+          className={`absolute left-2.5 -translate-x-1/2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full flex items-center justify-center z-10 transition cursor-pointer ${
+            isCompleted
+              ? 'bg-emerald-600 text-white shadow-xs hover:bg-emerald-700'
+              : 'bg-white border-2 border-slate-300 text-transparent hover:border-emerald-500'
+          }`}
+          title={isCompleted ? 'Mark activity incomplete' : 'Mark activity completed'}
+          aria-label="Toggle completion"
+        >
+          <i className="fa-solid fa-check text-[10px]"></i>
+        </button>
+
+        {/* Collapsed row container */}
+        <div
+          onClick={onToggleCollapse}
+          className={`rounded-2xl px-3 sm:px-4 py-2.5 flex items-center justify-between gap-3 border transition cursor-pointer select-none ${
+            isCompleted
+              ? 'bg-slate-50/90 hover:bg-slate-100/90 border-slate-200/90'
+              : 'bg-white hover:bg-slate-50 border-slate-200 shadow-2xs'
+          }`}
+        >
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            <span className="text-xs font-black text-slate-500 font-mono shrink-0">
+              {item.time}
+            </span>
+            <span
+              className={`text-xs sm:text-sm font-bold truncate ${
+                isCompleted ? 'text-slate-500 line-through' : 'text-slate-900'
+              }`}
+            >
+              {item.title}
+            </span>
+            <span
+              className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider px-1.5 sm:px-2 py-0.5 rounded-md border shrink-0 hidden xs:inline-flex items-center gap-1 ${typeColor}`}
+            >
+              <i className={`fa-solid ${typeIcon} text-[9px]`}></i>
+              {typeLabel}
+            </span>
+            {isCompleted && (
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
+                <i className="fa-solid fa-check text-[9px]"></i>
+                <span className="hidden sm:inline">Completed</span>
+              </span>
+            )}
+          </div>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapse();
+            }}
+            className="text-xs font-bold text-slate-600 hover:text-indigo-600 flex items-center gap-1.5 shrink-0 px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-indigo-300 transition shadow-2xs cursor-pointer active:scale-95"
+            title="Uncollapse and view activity details"
+          >
+            <span className="text-[11px] font-bold">Uncollapse</span>
+            <i className="fa-solid fa-chevron-down text-[10px]"></i>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // BEDTIME CARD
   if (item.type === 'bedtime') {
     return (
       <div className="relative pl-9">
-        <div className="absolute left-2.5 -translate-x-1/2 top-4 w-7 h-7 rounded-full bg-indigo-950 border-2 border-amber-300 flex items-center justify-center text-amber-300 shadow-xs z-10">
-          <i className="fa-solid fa-moon text-xs"></i>
+        <div
+          onClick={onToggleComplete}
+          className={`absolute left-2.5 -translate-x-1/2 top-4 w-7 h-7 rounded-full flex items-center justify-center shadow-xs z-10 cursor-pointer transition ${
+            isCompleted
+              ? 'bg-emerald-600 border-2 border-emerald-300 text-white'
+              : 'bg-indigo-950 border-2 border-amber-300 text-amber-300'
+          }`}
+          title={isCompleted ? 'Completed - click to mark incomplete' : 'Click to complete & collapse'}
+        >
+          <i className={`fa-solid ${isCompleted ? 'fa-check' : 'fa-moon'} text-xs`}></i>
         </div>
         <div className="bg-[color:var(--navy)] text-white rounded-2xl p-4 border border-indigo-900 shadow-xs">
-          <div className="flex items-center justify-between text-xs mb-1">
+          <div className="flex items-center justify-between text-xs mb-1 gap-2">
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] font-black uppercase tracking-wider bg-amber-400 text-slate-950 px-2 py-0.5 rounded">
                 Night Rest
               </span>
               <span className="text-amber-200 font-semibold">{item.time}</span>
             </div>
-            {durationBadge}
+            <div className="flex items-center gap-2">
+              {durationBadge}
+              <button
+                onClick={onToggleComplete}
+                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                  isCompleted
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+                }`}
+                title={isCompleted ? 'Mark incomplete' : 'Mark completed & collapse'}
+              >
+                <i className="fa-solid fa-check text-[9px]"></i>
+                <span>{isCompleted ? 'Completed' : 'Mark Done'}</span>
+              </button>
+              <button
+                onClick={onToggleCollapse}
+                className="text-white/70 hover:text-white p-1 transition cursor-pointer"
+                title="Collapse activity"
+              >
+                <i className="fa-solid fa-chevron-up text-xs"></i>
+              </button>
+            </div>
           </div>
           <h4 className="font-black text-sm text-white mt-1">{item.title}</h4>
           <p className="text-xs text-indigo-200 mt-1 leading-relaxed">{item.desc}</p>
@@ -577,15 +884,46 @@ const TimelineCard: React.FC<TimelineCardProps> = ({
     );
     return (
       <div className="relative pl-9">
-        <div className="absolute left-2.5 -translate-x-1/2 top-2.5 w-7 h-7 rounded-full bg-[color:var(--marble)] border border-[color:var(--mist)] flex items-center justify-center text-[color:var(--ink-3)] z-10">
-          <i className="fa-solid fa-car-side text-[11px]"></i>
+        <div
+          onClick={onToggleComplete}
+          className={`absolute left-2.5 -translate-x-1/2 top-2.5 w-7 h-7 rounded-full flex items-center justify-center z-10 cursor-pointer transition ${
+            isCompleted
+              ? 'bg-emerald-600 border border-emerald-400 text-white'
+              : 'bg-[color:var(--marble)] border border-[color:var(--mist)] text-[color:var(--ink-3)]'
+          }`}
+          title={isCompleted ? 'Completed - click to mark incomplete' : 'Click to complete & collapse'}
+        >
+          <i className={`fa-solid ${isCompleted ? 'fa-check' : 'fa-car-side'} text-[11px]`}></i>
         </div>
         <div className="leg-row">
           <div className="flex-1 min-w-0">
-            <div className="leg-meta">
-              {item.time} · Uber
-              {item.uberMeta?.time ? ` · ~${item.uberMeta.time}` : ''}
-              {item.uberMeta?.estFare ? ` · ${item.uberMeta.estFare}` : ''}
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="leg-meta">
+                {item.time} · Uber
+                {item.uberMeta?.time ? ` · ~${item.uberMeta.time}` : ''}
+                {item.uberMeta?.estFare ? ` · ${item.uberMeta.estFare}` : ''}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={onToggleComplete}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                    isCompleted
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                  }`}
+                  title={isCompleted ? 'Mark incomplete' : 'Mark completed & collapse'}
+                >
+                  <i className="fa-solid fa-check text-[9px]"></i>
+                  <span>{isCompleted ? 'Done' : 'Mark Done'}</span>
+                </button>
+                <button
+                  onClick={onToggleCollapse}
+                  className="text-slate-400 hover:text-slate-700 p-0.5 transition cursor-pointer"
+                  title="Collapse activity"
+                >
+                  <i className="fa-solid fa-chevron-up text-xs"></i>
+                </button>
+              </div>
             </div>
             <div className="leg-title">{item.title.replace(/^UberXL:\s*/, '')}</div>
             {item.desc && <div className="leg-note">{item.desc}</div>}
@@ -607,14 +945,45 @@ const TimelineCard: React.FC<TimelineCardProps> = ({
   if (item.type === 'transit-walk') {
     return (
       <div className="relative pl-9">
-        <div className="absolute left-2.5 -translate-x-1/2 top-2.5 w-7 h-7 rounded-full bg-[color:var(--marble)] border border-[color:var(--mist)] flex items-center justify-center text-[color:var(--ink-3)] z-10">
-          <i className="fa-solid fa-person-walking text-[11px]"></i>
+        <div
+          onClick={onToggleComplete}
+          className={`absolute left-2.5 -translate-x-1/2 top-2.5 w-7 h-7 rounded-full flex items-center justify-center z-10 cursor-pointer transition ${
+            isCompleted
+              ? 'bg-emerald-600 border border-emerald-400 text-white'
+              : 'bg-[color:var(--marble)] border border-[color:var(--mist)] text-[color:var(--ink-3)]'
+          }`}
+          title={isCompleted ? 'Completed - click to mark incomplete' : 'Click to complete & collapse'}
+        >
+          <i className={`fa-solid ${isCompleted ? 'fa-check' : 'fa-person-walking'} text-[11px]`}></i>
         </div>
         <div className="leg-row">
           <div className="flex-1 min-w-0">
-            <div className="leg-meta">
-              {item.time} · Walk{item.duration ? ` · ${item.duration}` : ''}
-              {item.walkMeta?.dist ? ` · ${item.walkMeta.dist}` : ''}
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="leg-meta">
+                {item.time} · Walk{item.duration ? ` · ${item.duration}` : ''}
+                {item.walkMeta?.dist ? ` · ${item.walkMeta.dist}` : ''}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={onToggleComplete}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                    isCompleted
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                  }`}
+                  title={isCompleted ? 'Mark incomplete' : 'Mark completed & collapse'}
+                >
+                  <i className="fa-solid fa-check text-[9px]"></i>
+                  <span>{isCompleted ? 'Done' : 'Mark Done'}</span>
+                </button>
+                <button
+                  onClick={onToggleCollapse}
+                  className="text-slate-400 hover:text-slate-700 p-0.5 transition cursor-pointer"
+                  title="Collapse activity"
+                >
+                  <i className="fa-solid fa-chevron-up text-xs"></i>
+                </button>
+              </div>
             </div>
             <div className="leg-title">{item.title}</div>
             {item.desc && <div className="leg-note">{item.desc}</div>}
@@ -628,17 +997,44 @@ const TimelineCard: React.FC<TimelineCardProps> = ({
   if (item.type === 'transit-metro') {
     return (
       <div className="relative pl-9">
-        <div className="absolute left-2.5 -translate-x-1/2 top-4 w-7 h-7 rounded-full bg-blue-600 border-2 border-white flex items-center justify-center text-white shadow-xs z-10">
-          <i className="fa-solid fa-train-subway text-xs"></i>
+        <div
+          onClick={onToggleComplete}
+          className={`absolute left-2.5 -translate-x-1/2 top-4 w-7 h-7 rounded-full flex items-center justify-center shadow-xs z-10 cursor-pointer transition ${
+            isCompleted
+              ? 'bg-emerald-600 border-2 border-white text-white'
+              : 'bg-blue-600 border-2 border-white text-white'
+          }`}
+          title={isCompleted ? 'Completed - click to mark incomplete' : 'Click to complete & collapse'}
+        >
+          <i className={`fa-solid ${isCompleted ? 'fa-check' : 'fa-train-subway'} text-xs`}></i>
         </div>
         <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-slate-800 shadow-xs">
-          <div className="flex items-center justify-between text-xs mb-1">
+          <div className="flex items-center justify-between text-xs mb-1 gap-2">
             <span className="text-[10px] font-black uppercase tracking-wider bg-blue-600 text-white px-2 py-0.5 rounded">
               Metro Direct
             </span>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               {durationBadge}
               <span className="text-blue-900 font-bold">{item.time}</span>
+              <button
+                onClick={onToggleComplete}
+                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                  isCompleted
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-white hover:bg-blue-100 text-blue-800 border border-blue-300'
+                }`}
+                title={isCompleted ? 'Mark incomplete' : 'Mark completed & collapse'}
+              >
+                <i className="fa-solid fa-check text-[9px]"></i>
+                <span>{isCompleted ? 'Done' : 'Mark Done'}</span>
+              </button>
+              <button
+                onClick={onToggleCollapse}
+                className="text-blue-600/70 hover:text-blue-900 p-1 transition cursor-pointer"
+                title="Collapse activity"
+              >
+                <i className="fa-solid fa-chevron-up text-xs"></i>
+              </button>
             </div>
           </div>
           <h4 className="font-black text-sm text-slate-900 mt-1">{item.title}</h4>
@@ -703,8 +1099,16 @@ const TimelineCard: React.FC<TimelineCardProps> = ({
     const flightPhoto = item.siteKey && SITE_IMAGES[item.siteKey] ? SITE_IMAGES[item.siteKey] : null;
     return (
       <div className="relative pl-9">
-        <div className="absolute left-2.5 -translate-x-1/2 top-4 w-7 h-7 rounded-full bg-blue-600 border-2 border-white flex items-center justify-center text-white shadow-xs z-10">
-          <i className="fa-solid fa-plane text-xs"></i>
+        <div
+          onClick={onToggleComplete}
+          className={`absolute left-2.5 -translate-x-1/2 top-4 w-7 h-7 rounded-full flex items-center justify-center shadow-xs z-10 cursor-pointer transition ${
+            isCompleted
+              ? 'bg-emerald-600 border-2 border-white text-white'
+              : 'bg-blue-600 border-2 border-white text-white'
+          }`}
+          title={isCompleted ? 'Completed - click to mark incomplete' : 'Click to complete & collapse'}
+        >
+          <i className={`fa-solid ${isCompleted ? 'fa-check' : 'fa-plane'} text-xs`}></i>
         </div>
         <div className="bg-white rounded-2xl border border-blue-300 shadow-xs overflow-hidden">
           {flightPhoto && (
@@ -729,13 +1133,32 @@ const TimelineCard: React.FC<TimelineCardProps> = ({
             </div>
           )}
           <div className="p-4">
-            <div className="flex items-center justify-between text-xs mb-1">
+            <div className="flex items-center justify-between text-xs mb-1 gap-2">
               <span className="text-[10px] font-black uppercase tracking-wider bg-blue-600 text-white px-2 py-0.5 rounded">
                 American Airlines
               </span>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 {durationBadge}
                 <span className="text-slate-800 font-bold">{item.time}</span>
+                <button
+                  onClick={onToggleComplete}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                    isCompleted
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200'
+                  }`}
+                  title={isCompleted ? 'Mark incomplete' : 'Mark completed & collapse'}
+                >
+                  <i className="fa-solid fa-check text-[9px]"></i>
+                  <span>{isCompleted ? 'Done' : 'Mark Done'}</span>
+                </button>
+                <button
+                  onClick={onToggleCollapse}
+                  className="text-slate-400 hover:text-slate-700 p-1 transition cursor-pointer"
+                  title="Collapse activity"
+                >
+                  <i className="fa-solid fa-chevron-up text-xs"></i>
+                </button>
               </div>
             </div>
             <h4 className="font-black text-sm text-slate-900 mt-1">{item.title}</h4>
@@ -785,8 +1208,16 @@ const TimelineCard: React.FC<TimelineCardProps> = ({
 
   return (
     <div className="relative pl-9">
-      <div className="absolute left-2.5 -translate-x-1/2 top-4 w-7 h-7 rounded-full bg-[color:var(--navy)] flex items-center justify-center text-white z-10">
-        <i className={`fa-solid ${item.icon || 'fa-landmark'} text-xs`}></i>
+      <div
+        onClick={onToggleComplete}
+        className={`absolute left-2.5 -translate-x-1/2 top-4 w-7 h-7 rounded-full flex items-center justify-center text-white z-10 cursor-pointer transition ${
+          isCompleted
+            ? 'bg-emerald-600 ring-2 ring-emerald-200 shadow-xs'
+            : 'bg-[color:var(--navy)] hover:opacity-90'
+        }`}
+        title={isCompleted ? 'Completed - click to mark incomplete' : 'Click to complete & collapse'}
+      >
+        <i className={`fa-solid ${isCompleted ? 'fa-check' : (item.icon || 'fa-landmark')} text-xs`}></i>
       </div>
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         {photo && !photoError && (
@@ -820,7 +1251,7 @@ const TimelineCard: React.FC<TimelineCardProps> = ({
               <span className="text-[15px] font-bold text-slate-900">{item.time}</span>
               {durationBadge}
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <span
                 className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
                   item.type === 'food'
@@ -838,6 +1269,30 @@ const TimelineCard: React.FC<TimelineCardProps> = ({
                   <i className="fa-solid fa-utensils"></i> Change Dinner
                 </button>
               )}
+
+              {/* Complete & Collapse Controls */}
+              <div className="flex items-center gap-1.5 border-l border-slate-200 pl-2">
+                <button
+                  onClick={onToggleComplete}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                    isCompleted
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      : 'bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300'
+                  }`}
+                  title={isCompleted ? 'Mark incomplete' : 'Mark completed & collapse'}
+                >
+                  <i className={`fa-solid fa-check text-[10px] ${isCompleted ? 'text-white' : 'text-slate-400'}`}></i>
+                  <span>{isCompleted ? 'Completed' : 'Mark Done'}</span>
+                </button>
+                <button
+                  onClick={onToggleCollapse}
+                  className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition cursor-pointer"
+                  title="Collapse activity"
+                  aria-label="Collapse activity"
+                >
+                  <i className="fa-solid fa-chevron-up text-xs"></i>
+                </button>
+              </div>
             </div>
           </div>
 

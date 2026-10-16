@@ -34,5 +34,10 @@ service cloud.firestore {
     match /trip_checklists/{docId} {
       allow read, write: if isValidId(docId);
     }
+
+    // Shared Family Trip Photos (Cloud Storage Collection)
+    match /trip_photos/{photoId} {
+      allow read, write: if isValidId(photoId);
+    }
   }
 }

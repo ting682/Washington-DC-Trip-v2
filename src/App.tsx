@@ -33,10 +33,21 @@ const SYNC_QUEUE_KEY = 'dc_sync_queue_v1';
 const SYNC_CODE_KEY = 'dc_family_code_v1';
 const SYNC_NAME_KEY = 'dc_family_name_v1';
 
+const getInitialTripDay = (): number => {
+  try {
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const tripDates = ['2026-10-15', '2026-10-16', '2026-10-17', '2026-10-18', '2026-10-19', '2026-10-20'];
+    const idx = tripDates.findIndex(d => todayStr === d || todayStr.endsWith(d.slice(5)));
+    return idx >= 0 ? idx : 0;
+  } catch (e) {
+    return 0;
+  }
+};
+
 export const App: React.FC = () => {
   // Navigation & View
   const [activeView, setActiveView] = useState<'itinerary' | 'checklist' | 'kids'>('itinerary');
-  const [activeDayIndex, setActiveDayIndex] = useState(0);
+  const [activeDayIndex, setActiveDayIndex] = useState<number>(getInitialTripDay);
 
   // Time-of-day Mood
   const [moodKey, setMoodKey] = useState<string>('midday');

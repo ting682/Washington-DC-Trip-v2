@@ -140,7 +140,7 @@ export interface TripPhoto {
   uploadedByUser?: boolean;
   uploadedAt?: string;
   tags?: string[];
-  accountOwner?: 'account1' | 'account2';
+  accountOwner?: 'account1' | 'account2' | 'family';
   accountOwnerName?: string;
   accountOwnerEmail?: string;
   googleMediaItemId?: string;

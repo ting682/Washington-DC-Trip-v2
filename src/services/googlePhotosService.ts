@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import { DAY_METADATA } from '../data/defaultPhotos';
 import { GoogleAlbumResult, TripPhoto } from '../types';
+import { compressImageFile } from './photoStorage';
 
 export interface GooglePhotosItem {
   id: string;
@@ -29,46 +30,27 @@ export interface GooglePhotosSearchResponse {
 }
 
 /**
- * Filter out screenshots, receipts, documents, and non-face pictures.
- * Google Photos API `contentFilter` with `PEOPLE` category already filters server-side
- * for media items containing human faces. This function provides additional client-side
- * verification to strictly guarantee no screenshots pass through.
+ * Filter out screenshots, receipts, documents, and non-photo graphics.
+ * Camera photos and portraits from phones are preserved.
  */
 export function isLikelyFacePhoto(item: GooglePhotosItem): boolean {
   const filename = (item.filename || '').toLowerCase();
 
-  // Exclude common screenshot naming conventions
+  // Exclude common screenshot and receipt naming conventions
   const screenshotKeywords = [
     'screenshot',
     'screen shot',
     'screencapture',
     'screen_shot',
-    'capture',
     'receipt',
     'invoice',
+    'statement',
     'document',
-    'scan',
-    'meme',
+    'scan_',
   ];
 
   if (screenshotKeywords.some(keyword => filename.includes(keyword))) {
     return false;
-  }
-
-  // Check aspect ratio if width/height available:
-  // Tall vertical screenshots often match mobile screen ratios without camera metadata
-  if (item.mediaMetadata) {
-    const width = parseInt(item.mediaMetadata.width || '0', 10);
-    const height = parseInt(item.mediaMetadata.height || '0', 10);
-
-    // If it's an extreme screen aspect ratio without camera metadata, treat as screenshot
-    if (width > 0 && height > 0 && !item.mediaMetadata.photo) {
-      const ratio = height / width;
-      // Typical modern phone screenshot ratio > 2.05
-      if (ratio > 2.05 || ratio < 0.48) {
-        return false;
-      }
-    }
   }
 
   return true;
@@ -101,12 +83,50 @@ export function mapTimestampToDayIndex(creationTime?: string): number {
 /**
  * Automatically fetch photos from Google Photos containing faces for the trip dates.
  */
+export interface GooglePhotoAlbum {
+  id: string;
+  title: string;
+  productUrl: string;
+  mediaItemsCount?: string;
+  coverPhotoBaseUrl?: string;
+}
+
+/**
+ * Fetch list of albums from Google Photos
+ */
+export async function fetchGoogleAlbums(accessToken: string): Promise<GooglePhotoAlbum[]> {
+  try {
+    const res = await fetch('https://photoslibrary.googleapis.com/v1/albums?pageSize=50', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (res.status === 403) {
+      throw new Error('PHOTOS_PERMISSION_NEEDED');
+    }
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.albums || [];
+  } catch (err: any) {
+    if (err.message === 'PHOTOS_PERMISSION_NEEDED') throw err;
+    console.warn('Error fetching Google Photos albums:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetch photos from Google Photos across multiple strategies:
+ * 1. User's recent media items
+ * 2. Date-filtered trip photos
+ * 3. Relevant trip albums (DC, Washington, Trip, Family)
+ */
 export async function fetchGooglePhotosForTrip(
   accessToken: string,
   options: {
     year?: number;
     requireFaces?: boolean;
     includeRecentFallback?: boolean;
+    albumId?: string;
     accountOwner?: 'account1' | 'account2';
     accountOwnerName?: string;
     accountOwnerEmail?: string;
@@ -114,107 +134,149 @@ export async function fetchGooglePhotosForTrip(
 ): Promise<TripPhoto[]> {
   const {
     year = 2026,
-    requireFaces = true,
-    includeRecentFallback = true,
+    requireFaces = false,
+    albumId,
     accountOwner = 'account1',
     accountOwnerName,
     accountOwnerEmail,
   } = options;
 
-  const endpoint = 'https://photoslibrary.googleapis.com/v1/mediaItems:search';
+  const resolvedOwnerName =
+    accountOwnerName || (accountOwner === 'account2' ? 'Wife' : 'Me');
 
-  // 1. Search by Trip Date Range (Oct 15 - Oct 20 of trip year)
-  const datePayload: any = {
-    pageSize: 50,
-    filters: {
-      dateFilter: {
-        ranges: [
-          {
-            startDate: { year, month: 10, day: 15 },
-            endDate: { year, month: 10, day: 20 },
-          },
-        ],
-      },
-      mediaTypeFilter: {
-        mediaTypes: ['PHOTO'],
-      },
-    },
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
   };
 
-  // If faces are strictly required, filter for PEOPLE category
-  if (requireFaces) {
-    datePayload.filters.contentFilter = {
-      includedContentCategories: ['PEOPLE'],
-    };
-  }
+  const itemMap = new Map<string, GooglePhotosItem>();
+  let permissionDenied = false;
 
-  let items: GooglePhotosItem[] = [];
-
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(datePayload),
-    });
-
-    if (res.ok) {
-      const data: GooglePhotosSearchResponse = await res.json();
-      if (data.mediaItems && data.mediaItems.length > 0) {
-        items = data.mediaItems;
-      }
-    } else {
-      console.warn('Google Photos search responded with status:', res.status);
-    }
-  } catch (err) {
-    console.warn('Google Photos date search failed:', err);
-  }
-
-  // 2. If 0 photos found for the specified year (e.g. if trip is future or photos are in current library),
-  // fallback to searching current library with the PEOPLE filter to retrieve real family face photos!
-  if (items.length === 0 && includeRecentFallback) {
+  // Strategy A: If specific albumId provided
+  if (albumId) {
     try {
-      const fallbackPayload: any = {
-        pageSize: 40,
+      const albumSearchRes = await fetch('https://photoslibrary.googleapis.com/v1/mediaItems:search', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ albumId, pageSize: 100 }),
+      });
+      if (albumSearchRes.status === 403 || albumSearchRes.status === 401) permissionDenied = true;
+      if (albumSearchRes.ok) {
+        const data: GooglePhotosSearchResponse = await albumSearchRes.json();
+        (data.mediaItems || []).forEach(item => itemMap.set(item.id, item));
+      }
+    } catch (e) {
+      console.warn('Error fetching album items:', e);
+    }
+  }
+
+  // Strategy B: Fetch recent media items directly (no strict date filter)
+  try {
+    const listRes = await fetch('https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=100', {
+      headers,
+    });
+    if (listRes.status === 403 || listRes.status === 401) permissionDenied = true;
+    if (listRes.ok) {
+      const data: GooglePhotosSearchResponse = await listRes.json();
+      (data.mediaItems || []).forEach(item => itemMap.set(item.id, item));
+    }
+  } catch (e) {
+    console.warn('Error fetching recent media items:', e);
+  }
+
+  // Strategy C: Date range search across trip days for multiple possible years (current year, 2026, 2025, 2024)
+  const currentYear = new Date().getFullYear();
+  const searchYears = Array.from(new Set([year, currentYear, 2026, 2025, 2024]));
+
+  for (const yr of searchYears) {
+    if (itemMap.size >= 50) break;
+    try {
+      const datePayload: any = {
+        pageSize: 100,
         filters: {
+          dateFilter: {
+            ranges: [
+              {
+                startDate: { year: yr, month: 10, day: 1 },
+                endDate: { year: yr, month: 10, day: 31 },
+              },
+            ],
+          },
           mediaTypeFilter: {
             mediaTypes: ['PHOTO'],
           },
-          contentFilter: {
-            includedContentCategories: ['PEOPLE'],
-          },
         },
       };
-
-      const fallbackRes = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(fallbackPayload),
-      });
-
-      if (fallbackRes.ok) {
-        const fallbackData: GooglePhotosSearchResponse = await fallbackRes.json();
-        if (fallbackData.mediaItems) {
-          items = fallbackData.mediaItems;
-        }
+      if (requireFaces) {
+        datePayload.filters.contentFilter = {
+          includedContentCategories: ['PEOPLE'],
+        };
       }
-    } catch (fallbackErr) {
-      console.warn('Google Photos fallback search failed:', fallbackErr);
+
+      const searchRes = await fetch('https://photoslibrary.googleapis.com/v1/mediaItems:search', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(datePayload),
+      });
+      if (searchRes.status === 403 || searchRes.status === 401) permissionDenied = true;
+      if (searchRes.ok) {
+        const data: GooglePhotosSearchResponse = await searchRes.json();
+        (data.mediaItems || []).forEach(item => itemMap.set(item.id, item));
+      }
+    } catch (e) {
+      console.warn(`Error searching date range for year ${yr}:`, e);
     }
   }
 
-  // 3. Filter for face pictures (no screenshots) and convert to TripPhoto format
-  const validItems = items.filter(isLikelyFacePhoto);
-  const resolvedOwnerName =
-    accountOwnerName || (accountOwner === 'account2' ? "Wife" : "Me");
+  // Strategy D: Search user albums (check trip-relevant albums and top user albums)
+  if (itemMap.size === 0) {
+    try {
+      const albums = await fetchGoogleAlbums(accessToken);
+      if (albums.length > 0) {
+        // Prioritize trip albums, or fallback to first 5 albums
+        const tripAlbums = albums.filter(a => {
+          const title = (a.title || '').toLowerCase();
+          return (
+            title.includes('dc') ||
+            title.includes('washington') ||
+            title.includes('trip') ||
+            title.includes('family') ||
+            title.includes('2026') ||
+            title.includes('oct') ||
+            title.includes('vacation')
+          );
+        });
 
-  const tripPhotos: TripPhoto[] = validItems.map((item) => {
-    const dayIdx = mapTimestampToDayIndex(item.mediaMetadata?.creationTime);
+        const targetAlbums = tripAlbums.length > 0 ? tripAlbums.slice(0, 5) : albums.slice(0, 3);
+
+        for (const album of targetAlbums) {
+          const aRes = await fetch('https://photoslibrary.googleapis.com/v1/mediaItems:search', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ albumId: album.id, pageSize: 50 }),
+          });
+          if (aRes.ok) {
+            const aData: GooglePhotosSearchResponse = await aRes.json();
+            (aData.mediaItems || []).forEach(item => itemMap.set(item.id, item));
+          }
+        }
+      }
+    } catch (e: any) {
+      if (e?.message === 'PHOTOS_PERMISSION_NEEDED') permissionDenied = true;
+      console.warn('Error scanning user albums:', e);
+    }
+  }
+
+  // If permission was denied across all endpoints, signal clearly
+  if (itemMap.size === 0 && permissionDenied) {
+    throw new Error('PHOTOS_PERMISSION_NEEDED');
+  }
+
+  const items = Array.from(itemMap.values());
+  const validItems = items.filter(isLikelyFacePhoto);
+
+  const tripPhotos: TripPhoto[] = validItems.map((item, idx) => {
+    const dayIdx = mapTimestampToDayIndex(item.mediaMetadata?.creationTime) || (idx % 6);
     const dayMeta = DAY_METADATA.find(d => d.index === dayIdx) || DAY_METADATA[0];
 
     const creationDateStr = item.mediaMetadata?.creationTime
@@ -227,7 +289,6 @@ export async function fetchGooglePhotosForTrip(
         })
       : 'Trip Photo';
 
-    // baseUrl sizing: append =w1200-h900 for high quality display
     const highResUrl = `${item.baseUrl}=w1200-h900`;
 
     return {
@@ -238,11 +299,11 @@ export async function fetchGooglePhotosForTrip(
       src: highResUrl,
       alt: item.description || `${resolvedOwnerName}'s Photo - ${dayMeta.shortName}`,
       title: item.description || `${resolvedOwnerName}'s Photo (${dayMeta.shortName})`,
-      caption: `Imported from ${resolvedOwnerName}'s Google Photos with face detection · ${creationDateStr}`,
+      caption: `From ${resolvedOwnerName}'s Google Photos · ${creationDateStr}`,
       credit: `${resolvedOwnerName} · Google Photos`,
       uploadedByUser: true,
       uploadedAt: creationDateStr,
-      tags: ['Google Photos', resolvedOwnerName, 'Face Detected', `Day ${dayIdx + 1}`],
+      tags: ['Google Photos', resolvedOwnerName, `Day ${dayIdx + 1}`],
       accountOwner,
       accountOwnerName: resolvedOwnerName,
       accountOwnerEmail,
@@ -563,4 +624,180 @@ export async function downloadTripPhotosZip(
   anchor.click();
   document.body.removeChild(anchor);
   setTimeout(() => URL.revokeObjectURL(downloadUrl), 8000);
+}
+
+/**
+ * Creates a Google Photos Picker session for interactive user photo selection.
+ * This is Google's official recommended API after the March 31, 2025 deprecation.
+ */
+export async function createGooglePhotosPickerSession(
+  accessToken: string
+): Promise<{ id: string; pickerUri: string } | null> {
+  try {
+    const res = await fetch('https://photospicker.googleapis.com/v1/sessions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      console.warn('Photos picker session response status:', res.status);
+      return null;
+    }
+    const data = await res.json();
+    return { id: data.id, pickerUri: data.pickerUri };
+  } catch (e) {
+    console.warn('Error starting Google Photos Picker session:', e);
+    return null;
+  }
+}
+
+/**
+ * Checks if a Google Photos Picker session has media items selected by the user.
+ */
+export async function pollPhotosPickerSessionReady(
+  accessToken: string,
+  sessionId: string
+): Promise<boolean> {
+  try {
+    const res = await fetch(`https://photospicker.googleapis.com/v1/sessions/${sessionId}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return Boolean(data.mediaItemsSet);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Retrieves media items chosen by the user in a Google Photos Picker session.
+ */
+export async function fetchGooglePhotosPickerMediaItems(
+  accessToken: string,
+  sessionId: string,
+  options: {
+    accountOwner?: 'account1' | 'account2';
+    accountOwnerName?: string;
+  } = {}
+): Promise<TripPhoto[]> {
+  const { accountOwner = 'account1', accountOwnerName } = options;
+  const resolvedOwner = accountOwnerName || (accountOwner === 'account2' ? 'Wife' : 'Me');
+
+  try {
+    const res = await fetch(
+      `https://photospicker.googleapis.com/v1/mediaItems?sessionId=${sessionId}&pageSize=100`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items = data.mediaItems || [];
+
+    return items.map((item: any, idx: number) => {
+      const createTime = item.createTime || item.mediaFile?.createTime;
+      const dayIdx = mapTimestampToDayIndex(createTime) || (idx % 6);
+      const dayMeta = DAY_METADATA.find(d => d.index === dayIdx) || DAY_METADATA[0];
+      const filename = item.mediaFile?.filename || `Google Photo ${idx + 1}`;
+      const baseUrl = item.mediaFile?.baseUrl;
+      const src = baseUrl ? `${baseUrl}=w1600-h1200` : '';
+
+      return {
+        id: `picker-${accountOwner}-${item.id || Date.now() + '_' + idx}`,
+        dayIndex: dayIdx,
+        dayLabel: dayMeta.label,
+        dayTheme: dayMeta.theme,
+        src,
+        alt: filename,
+        title: filename.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+        caption: `From ${resolvedOwner}'s Google Photos · ${dayMeta.label}`,
+        credit: `${resolvedOwner} · Google Photos`,
+        uploadedByUser: true,
+        tags: ['Google Photos', resolvedOwner, `Day ${dayIdx + 1}`],
+        accountOwner,
+        accountOwnerName: resolvedOwner,
+        googleMediaItemId: item.id,
+      };
+    });
+  } catch (e) {
+    console.warn('Error fetching picker media items:', e);
+    return [];
+  }
+}
+
+/**
+ * Process client-selected photos (from camera roll or files) into optimized TripPhoto objects,
+ * mapping timestamps automatically to trip days (Oct 15 = Day 1, etc.).
+ */
+export async function parsePhotoFilesForTrip(
+  files: File[],
+  options: {
+    accountOwner: 'account1' | 'account2';
+    accountOwnerName: string;
+    targetDayIndex?: number | 'auto';
+  }
+): Promise<TripPhoto[]> {
+  const { accountOwner, accountOwnerName, targetDayIndex = 'auto' } = options;
+  const results: TripPhoto[] = [];
+
+  for (let idx = 0; idx < files.length; idx++) {
+    const file = files[idx];
+    try {
+      const compressedSrc = await compressImageFile(file, 1600, 0.85);
+
+      // Map day index: check explicit target, or auto-detect from file.lastModified
+      let assignedDay = 0;
+      if (typeof targetDayIndex === 'number' && targetDayIndex >= 0 && targetDayIndex <= 5) {
+        assignedDay = targetDayIndex;
+      } else if (file.lastModified) {
+        const modDate = new Date(file.lastModified);
+        const dayOfMonth = modDate.getDate();
+        if (dayOfMonth >= 15 && dayOfMonth <= 20) {
+          assignedDay = dayOfMonth - 15;
+        } else {
+          assignedDay = idx % 6;
+        }
+      } else {
+        assignedDay = idx % 6;
+      }
+
+      const dayMeta = DAY_METADATA.find(d => d.index === assignedDay) || DAY_METADATA[0];
+      const rawTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ') || 'Trip Photo';
+      const cleanTitle = rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1);
+
+      results.push({
+        id: `photo-${accountOwner}-${Date.now()}-${idx}`,
+        title: cleanTitle,
+        alt: cleanTitle,
+        dayLabel: dayMeta.label,
+        caption: `From ${accountOwnerName}'s Camera · ${dayMeta.label}`,
+        src: compressedSrc,
+        dayIndex: assignedDay,
+        dayTheme: dayMeta.theme,
+        credit: `${accountOwnerName} · Photo`,
+        tags: ['Google Photos', accountOwnerName, `Day ${assignedDay + 1}`],
+        uploadedByUser: true,
+        accountOwner,
+        accountOwnerName,
+        uploadedAt: new Date().toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        }),
+      });
+    } catch (err) {
+      console.warn('Error reading photo file:', file.name, err);
+    }
+  }
+
+  return results;
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { DAY_METADATA, DEFAULT_TRIP_PHOTOS } from '../../data/defaultPhotos';
+import { subscribeToCloudPhotos } from '../../services/cloudPhotoService';
 import { TripPhoto } from '../../types';
 
 interface DayPhotoReelProps {
@@ -8,29 +9,23 @@ interface DayPhotoReelProps {
   onSelectPhoto: (photo: TripPhoto) => void;
 }
 
-const GOOGLE_PHOTOS_STORAGE_KEY = 'dc_family_trip_google_photos_v1';
-
 export const DayPhotoReel: React.FC<DayPhotoReelProps> = ({
   dayIndex,
   onOpenFullGallery,
   onSelectPhoto,
 }) => {
   const [dayPhotos, setDayPhotos] = useState<TripPhoto[]>([]);
-  const [hasGooglePhotos, setHasGooglePhotos] = useState(false);
+  const [hasCloudPhotos, setHasCloudPhotos] = useState(false);
 
   useEffect(() => {
-    let googlePhotos: TripPhoto[] = [];
-    try {
-      const saved = localStorage.getItem(GOOGLE_PHOTOS_STORAGE_KEY);
-      if (saved) {
-        googlePhotos = JSON.parse(saved);
-      }
-    } catch (e) {}
+    const unsubscribe = subscribeToCloudPhotos((cloudPhotos) => {
+      const all = [...cloudPhotos, ...DEFAULT_TRIP_PHOTOS];
+      const forThisDay = all.filter(p => p.dayIndex === dayIndex);
+      setDayPhotos(forThisDay);
+      setHasCloudPhotos(cloudPhotos.some(p => p.dayIndex === dayIndex));
+    });
 
-    const all = [...googlePhotos, ...DEFAULT_TRIP_PHOTOS];
-    const forThisDay = all.filter(p => p.dayIndex === dayIndex);
-    setDayPhotos(forThisDay);
-    setHasGooglePhotos(googlePhotos.some(p => p.dayIndex === dayIndex));
+    return () => unsubscribe();
   }, [dayIndex]);
 
   const dayMeta = DAY_METADATA.find(d => d.index === dayIndex) || DAY_METADATA[0];
@@ -50,10 +45,10 @@ export const DayPhotoReel: React.FC<DayPhotoReelProps> = ({
               <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full">
                 {dayPhotos.length} Photos
               </span>
-              {hasGooglePhotos && (
+              {hasCloudPhotos && (
                 <span className="text-[9px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <i className="fa-brands fa-google text-[8px]"></i>
-                  <span>Combined Family Imports</span>
+                  <i className="fa-solid fa-cloud text-[8px]"></i>
+                  <span>Cloud Synced</span>
                 </span>
               )}
             </div>
@@ -94,8 +89,8 @@ export const DayPhotoReel: React.FC<DayPhotoReelProps> = ({
                     photo.accountOwner === 'account2' ? 'bg-rose-600' : 'bg-blue-600'
                   }`}
                 >
-                  <i className="fa-brands fa-google text-[7px]"></i>
-                  <span className="truncate max-w-[50px]">{photo.accountOwnerName || 'Face'}</span>
+                  <i className="fa-solid fa-cloud text-[7px]"></i>
+                  <span className="truncate max-w-[50px]">{photo.accountOwnerName || 'Cloud'}</span>
                 </span>
               )}
             </div>

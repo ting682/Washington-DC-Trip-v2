@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
@@ -9,12 +9,17 @@ import {
 } from 'firebase/auth';
 import { firebaseConfig } from '../config/firebaseConfig';
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 
-export const SCOPES = [
+export const PHOTOS_SCOPES = [
   'https://www.googleapis.com/auth/photoslibrary.readonly',
   'https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
+];
+
+export const BASIC_SCOPES = [
+  'profile',
+  'email',
 ];
 
 let isSigningIn = false;
@@ -29,7 +34,6 @@ export const initAuth = (
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
-        // Token must be refreshed or acquired via popup if expired
         if (onAuthFailure) onAuthFailure();
       }
     } else {
@@ -42,13 +46,17 @@ export const initAuth = (
 export const googleSignIn = async (options?: {
   promptAccountSelect?: boolean;
   loginHint?: string;
+  requestPhotosScope?: boolean;
 }): Promise<{ user: User; accessToken: string } | null> => {
+  // Default to non-sensitive BASIC_SCOPES (profile, email) so Google OAuth does not block the app
+  // with "Access blocked: has not completed the Google verification process"
+  const tryScopes = options?.requestPhotosScope === true ? [...PHOTOS_SCOPES, ...BASIC_SCOPES] : BASIC_SCOPES;
+
   try {
     isSigningIn = true;
     const provider = new GoogleAuthProvider();
-    SCOPES.forEach(scope => provider.addScope(scope));
+    tryScopes.forEach(scope => provider.addScope(scope));
 
-    // Force account selection so Ting and his wife can each sign into their distinct Google accounts
     const customParams: Record<string, string> = {
       prompt: options?.promptAccountSelect === false ? 'consent' : 'select_account',
     };
@@ -59,14 +67,26 @@ export const googleSignIn = async (options?: {
 
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Failed to get access token from Google Photos authentication');
+    const token = credential?.accessToken || '';
+
+    cachedAccessToken = token;
+    return { user: result.user, accessToken: token };
+  } catch (error: any) {
+    console.warn('Initial Google Sign-In error:', error?.code || error?.message);
+
+    // If Google blocked the sensitive photos scope (e.g. invalid_scope or 400),
+    // retry once with standard profile and email scopes so the user can still connect!
+    if (
+      options?.requestPhotosScope !== false &&
+      (error?.code === 'auth/invalid-scope' ||
+        error?.message?.includes('scope') ||
+        error?.message?.includes('invalid_scope') ||
+        error?.code === 'auth/internal-error')
+    ) {
+      console.info('Retrying Google sign-in with basic profile scope...');
+      return googleSignIn({ ...options, requestPhotosScope: false });
     }
 
-    cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: credential.accessToken };
-  } catch (error: any) {
-    console.error('Google Sign-In error:', error);
     throw error;
   } finally {
     isSigningIn = false;

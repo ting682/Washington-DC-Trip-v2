@@ -47,10 +47,30 @@ export interface CurrentWeather {
   humidity?: number;
 }
 
-export const WeatherCard: React.FC = () => {
+interface WeatherCardProps {
+  initialDayIndex?: number;
+  activeDayIndex?: number;
+  onSelectDayIndex?: (dayIndex: number) => void;
+}
+
+const FALLBACK_DAYS = [
+  { date: '2026-10-15', high: 78, low: 61, precip: 20, code: 2, uv: 5 },
+  { date: '2026-10-16', high: 81, low: 61, precip: 55, code: 80, uv: 4 },
+  { date: '2026-10-17', high: 62, low: 46, precip: 50, code: 61, uv: 4 },
+  { date: '2026-10-18', high: 62, low: 43, precip: 10, code: 1, uv: 5 },
+  { date: '2026-10-19', high: 67, low: 47, precip: 10, code: 0, uv: 5 },
+  { date: '2026-10-20', high: 70, low: 51, precip: 10, code: 1, uv: 5 },
+];
+
+export const WeatherCard: React.FC<WeatherCardProps> = ({
+  initialDayIndex,
+  activeDayIndex,
+  onSelectDayIndex,
+}) => {
+  const currentActiveIdx = typeof activeDayIndex === 'number' ? activeDayIndex : (initialDayIndex ?? 0);
   const [current, setCurrent] = useState<CurrentWeather | null>(null);
   const [forecast, setForecast] = useState<DayForecast[]>([]);
-  const [selectedDayIndex, setSelectedDayIndex] = useState<number>(0);
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number>(currentActiveIdx);
   const [showHourly, setShowHourly] = useState<boolean>(true);
   const [hourlyFilter, setHourlyFilter] = useState<'daytime' | 'all'>('daytime');
   const [unit, setUnit] = useState<'F' | 'C'>('F');
@@ -115,69 +135,69 @@ export const WeatherCard: React.FC = () => {
     }
   };
 
-  const getTripMeta = (dateStr: string, idx: number) => {
-    if (dateStr.endsWith('10-15') || idx === 0) {
+  const getTripMeta = (dateStr: string) => {
+    if (dateStr.includes('10-15') || dateStr.endsWith('-15')) {
       return {
         tripDayNumber: 1,
-        tripTitle: 'Duluth ➔ DC Arrival',
+        tripTitle: 'Duluth ➔ DC Arrival & Settle In',
         tripHighlight: 'ATL ➔ DCA & Thai Dinner',
         dayLabel: 'Thu, Oct 15',
         walkingTip:
-          'Arrival & Evening Walk: Warm afternoon (78°F). Pleasant evening for walking down 14th St NW to Ammathar Thai Cuisine. Comfortable in light clothing.',
+          'Arrival & Settle In: Settle in at Holiday Inn Central and enjoy a pleasant evening stroll down 14th St NW to Ammathar Thai Cuisine for dinner. Light, comfortable clothing is ideal for the evening arrival.',
       };
     }
-    if (dateStr.endsWith('10-16') || idx === 1) {
+    if (dateStr.includes('10-16') || dateStr.endsWith('-16')) {
       return {
         tripDayNumber: 2,
-        tripTitle: 'White House & Mall',
-        tripHighlight: 'Security & Tidal Basin',
+        tripTitle: 'White House, Pentagon & Old Town',
+        tripHighlight: 'White House & Chart House',
         dayLabel: 'Fri, Oct 16',
         walkingTip:
-          'White House & National Mall: Warm afternoon (81°F) with passing showers (58% chance). Pack compact umbrellas for the morning White House security check line!',
+          'White House, Pentagon & Historic Old Town: Morning security check lines at the White House and afternoon Pentagon tour. Keep compact umbrellas handy for any passing showers. In the evening, enjoy a scenic waterfront stroll along the Potomac at historic Old Town Alexandria and dinner at Chart House.',
       };
     }
-    if (dateStr.endsWith('10-17') || idx === 2) {
+    if (dateStr.includes('10-17') || dateStr.endsWith('-17')) {
       return {
         tripDayNumber: 3,
-        tripTitle: 'Smithsonian Museums',
-        tripHighlight: 'Air & Space & Natural History',
+        tripTitle: 'Smithsonian Museums & The Wharf',
+        tripHighlight: 'Dinosaurs & The Wharf',
         dayLabel: 'Sat, Oct 17',
         walkingTip:
-          'Smithsonian Galleries: Crisp autumn air (62°F / 46°F) and morning rain chances (58%). Ideal day to spend inside Air & Space and Natural History museum galleries!',
+          'Smithsonian Galleries & Wharf Pier: Ideal day for exploring indoor galleries at the Natural History and Air & Space Museums. In the late afternoon, head to The Wharf pier for a refreshing boardwalk stroll and sunset dinner at Mi Vida.',
       };
     }
-    if (dateStr.endsWith('10-18') || idx === 3) {
+    if (dateStr.includes('10-18') || dateStr.endsWith('-18')) {
       return {
         tripDayNumber: 4,
-        tripTitle: 'National Zoo Pandas 🐼',
-        tripHighlight: 'Bao Li & Qing Bao Asia Trail',
+        tripTitle: 'Spies, History & Sunset Memorials',
+        tripHighlight: 'Spy Museum & Lincoln Sunset',
         dayLabel: 'Sun, Oct 18',
         walkingTip:
-          'Giant Pandas at National Zoo: Clear skies and crisp weather (62°F / 43°F), low rain (8%). Morning is optimal to see Bao Li & Qing Bao active in the outdoor Asia Trail! Light jackets recommended.',
+          'Spy Missions & National Mall: Undercover missions inside the International Spy Museum in the morning, followed by breathtaking sunset views walking the National Mall, Washington Monument, and Lincoln Memorial. A light jacket is recommended for evening memorial walks.',
       };
     }
-    if (dateStr.endsWith('10-19') || idx === 4) {
+    if (dateStr.includes('10-19') || dateStr.endsWith('-19')) {
       return {
         tripDayNumber: 5,
-        tripTitle: 'Capitol & Library',
-        tripHighlight: 'Capitol Tour & The Wharf',
+        tripTitle: 'Pandas, Bible Museum & Capitol',
+        tripHighlight: 'Zoo Pandas & Old Ebbitt Grill',
         dayLabel: 'Mon, Oct 19',
         walkingTip:
-          'Capitol Hill & Wharf: Pleasant autumn sunshine (67°F / 47°F) with only 9% rain risk. Excellent walking weather for the Capitol grounds, Supreme Court, and waterfront boardwalk dinner.',
+          'Giant Pandas & Capitol Hill: Catch giant pandas Bao Li & Qing Bao active in the outdoor Asia Trail during cooler morning hours at the National Zoo. Excellent walking weather for the Capitol Grounds in the afternoon and a historic dinner at Old Ebbitt Grill.',
       };
     }
-    if (dateStr.endsWith('10-20') || idx === 5) {
+    if (dateStr.includes('10-20') || dateStr.endsWith('-20')) {
       return {
         tripDayNumber: 6,
-        tripTitle: 'Monuments & DCA Home',
-        tripHighlight: 'Lincoln Memorial & Flight',
+        tripTitle: 'Departure Day & Flight Home',
+        tripHighlight: 'Breakfast & DCA Terminal 2',
         dayLabel: 'Tue, Oct 20',
         walkingTip:
-          'Monuments & Flight Home: Mild & sunny (70°F / 51°F). Ideal conditions for walking the Lincoln, Vietnam & Korean War memorials before the evening flight home from DCA.',
+          'Departure Day: Relaxed morning breakfast at Silver Diner, packing up at Holiday Inn, and a smooth scenic drive down George Washington Memorial Parkway to DCA Terminal 2 for your flight home to Atlanta.',
       };
     }
     return {
-      tripDayNumber: idx + 1,
+      tripDayNumber: 1,
       tripTitle: 'Washington, DC Tour',
       tripHighlight: 'City Exploration',
       dayLabel: dateStr,
@@ -225,7 +245,7 @@ export const WeatherCard: React.FC = () => {
     setError(null);
     try {
       const url =
-        'https://api.open-meteo.com/v1/forecast?latitude=38.8951&longitude=-77.0364&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,windspeed_10m_max,uv_index_max&hourly=temperature_2m,apparent_temperature,precipitation_probability,weathercode,windspeed_10m&current_weather=true&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America%2FNew_York&forecast_days=7';
+        'https://api.open-meteo.com/v1/forecast?latitude=38.8951&longitude=-77.0364&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,windspeed_10m_max,uv_index_max&hourly=temperature_2m,apparent_temperature,precipitation_probability,weathercode,windspeed_10m&current_weather=true&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America%2FNew_York&past_days=1&forecast_days=6';
 
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Weather fetch status: ${res.status}`);
@@ -297,8 +317,13 @@ export const WeatherCard: React.FC = () => {
           }
         }
 
-        // Build 6-day trip forecast (Oct 15 to Oct 20)
-        const dailyList: DayForecast[] = [];
+        // Today and tomorrow date strings in Eastern Time
+        const nyToday = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        const tomDate = new Date();
+        tomDate.setDate(tomDate.getDate() + 1);
+        const nyTomorrow = tomDate.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
+        // Build 6-day trip forecast (Oct 15 to Oct 20) guaranteed to match Day 1 - Day 6
         const dates: string[] = data.daily.time || [];
         const maxTemps: number[] = data.daily.temperature_2m_max || [];
         const minTemps: number[] = data.daily.temperature_2m_min || [];
@@ -309,18 +334,20 @@ export const WeatherCard: React.FC = () => {
         const winds: number[] = data.daily.windspeed_10m_max || [];
         const uvs: number[] = data.daily.uv_index_max || [];
 
-        const count = Math.min(6, dates.length);
-        for (let i = 0; i < count; i++) {
-          const dateStr = dates[i];
-          const dateObj = new Date(dateStr + 'T12:00:00');
-          const meta = getTripMeta(dateStr, i);
+        const dailyList: DayForecast[] = FALLBACK_DAYS.map((fallbackDay) => {
+          const dateStr = fallbackDay.date;
+          const apiIdx = dates.findIndex(d => d === dateStr || d.endsWith(dateStr.slice(5)));
 
-          const dayName =
-            i === 0
-              ? 'Today (Thu)'
-              : i === 1
-              ? 'Tomorrow (Fri)'
-              : dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+          const dateObj = new Date(dateStr + 'T12:00:00');
+          const meta = getTripMeta(dateStr);
+
+          const weekdayShort = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+          let dayName = weekdayShort;
+          if (dateStr === nyToday || dateStr.endsWith(nyToday.slice(5))) {
+            dayName = `Today (${weekdayShort})`;
+          } else if (dateStr === nyTomorrow || dateStr.endsWith(nyTomorrow.slice(5))) {
+            dayName = `Tomorrow (${weekdayShort})`;
+          }
 
           const fullDayLabel = dateObj.toLocaleDateString('en-US', {
             weekday: 'long',
@@ -333,15 +360,21 @@ export const WeatherCard: React.FC = () => {
             day: 'numeric',
           });
 
-          const info = getWeatherInfo(codes[i]);
-          const pProb = Math.round(precips[i] || 0);
-          const tMax = Math.round(maxTemps[i] || 68);
-          const tMin = Math.round(minTemps[i] || 50);
-          const uvVal = Math.round(uvs[i] || 4);
+          const weatherCode = apiIdx >= 0 && codes[apiIdx] !== undefined ? codes[apiIdx] : fallbackDay.code;
+          const info = getWeatherInfo(weatherCode);
+          const tMax = apiIdx >= 0 && maxTemps[apiIdx] !== undefined ? Math.round(maxTemps[apiIdx]) : fallbackDay.high;
+          const tMin = apiIdx >= 0 && minTemps[apiIdx] !== undefined ? Math.round(minTemps[apiIdx]) : fallbackDay.low;
+          const appTMax = apiIdx >= 0 && appMax[apiIdx] !== undefined ? Math.round(appMax[apiIdx]) : tMax;
+          const appTMin = apiIdx >= 0 && appMin[apiIdx] !== undefined ? Math.round(appMin[apiIdx]) : tMin;
+          const pProb = apiIdx >= 0 && precips[apiIdx] !== undefined ? Math.round(precips[apiIdx]) : fallbackDay.precip;
+          const wMax = apiIdx >= 0 && winds[apiIdx] !== undefined ? Math.round(winds[apiIdx]) : 10;
+          const uvVal = apiIdx >= 0 && uvs[apiIdx] !== undefined ? Math.round(uvs[apiIdx]) : fallbackDay.uv;
 
-          const dayHourly = hourlyByDate[dateStr] || generateFallbackHourly(dateStr, tMax, tMin, pProb, codes[i]);
+          const dayHourly = (hourlyByDate[dateStr] && hourlyByDate[dateStr].length > 0)
+            ? hourlyByDate[dateStr]
+            : generateFallbackHourly(dateStr, tMax, tMin, pProb, weatherCode);
 
-          dailyList.push({
+          return {
             date: dateStr,
             dayName,
             fullDayLabel,
@@ -349,22 +382,36 @@ export const WeatherCard: React.FC = () => {
             tripDayNumber: meta.tripDayNumber,
             tripTitle: meta.tripTitle,
             tripHighlight: meta.tripHighlight,
-            weatherCode: codes[i],
+            weatherCode,
             condition: info.condition,
             icon: info.icon,
             tempMax: tMax,
             tempMin: tMin,
-            apparentMax: Math.round(appMax[i] || tMax),
-            apparentMin: Math.round(appMin[i] || tMin),
+            apparentMax: appTMax,
+            apparentMin: appTMin,
             precipProb: pProb,
-            windSpeedMax: Math.round(winds[i] || 10),
+            windSpeedMax: wMax,
             uvIndexMax: uvVal,
             walkingTip: meta.walkingTip,
             hourly: dayHourly,
-          });
-        }
+          };
+        });
 
         setForecast(dailyList);
+
+        // Synchronize selected day with activeDayIndex or initialDayIndex
+        const targetDayIdx = typeof activeDayIndex === 'number'
+          ? activeDayIndex
+          : (typeof initialDayIndex === 'number' ? initialDayIndex : undefined);
+
+        if (typeof targetDayIdx === 'number' && targetDayIdx >= 0 && targetDayIdx < dailyList.length) {
+          setSelectedDayIndex(targetDayIdx);
+        } else {
+          const todayIdx = dailyList.findIndex(d => d.date === nyToday || d.date.endsWith(nyToday.slice(5)));
+          if (todayIdx >= 0) {
+            setSelectedDayIndex(todayIdx);
+          }
+        }
 
         const now = new Date();
         setLastUpdated(
@@ -375,22 +422,26 @@ export const WeatherCard: React.FC = () => {
       console.warn('Weather fetch error, using fallback full-trip forecast:', err);
       setError('Live forecast syncing. Showing full October 15–20 Washington DC trip forecast.');
 
-      const fallbackDays = [
-        { date: '2026-10-15', high: 78, low: 61, precip: 20, code: 2, uv: 5 },
-        { date: '2026-10-16', high: 81, low: 61, precip: 55, code: 80, uv: 4 },
-        { date: '2026-10-17', high: 62, low: 46, precip: 50, code: 61, uv: 4 },
-        { date: '2026-10-18', high: 62, low: 43, precip: 10, code: 1, uv: 5 },
-        { date: '2026-10-19', high: 67, low: 47, precip: 10, code: 0, uv: 5 },
-        { date: '2026-10-20', high: 70, low: 51, precip: 10, code: 1, uv: 5 },
-      ];
+      const nyToday = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      const tomDate = new Date();
+      tomDate.setDate(tomDate.getDate() + 1);
+      const nyTomorrow = tomDate.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
-      const fallbackList: DayForecast[] = fallbackDays.map((d, i) => {
-        const meta = getTripMeta(d.date, i);
+      const fallbackList: DayForecast[] = FALLBACK_DAYS.map((d) => {
+        const meta = getTripMeta(d.date);
         const info = getWeatherInfo(d.code);
         const dateObj = new Date(d.date + 'T12:00:00');
+        const weekdayShort = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+        let dayName = weekdayShort;
+        if (d.date === nyToday || d.date.endsWith(nyToday.slice(5))) {
+          dayName = `Today (${weekdayShort})`;
+        } else if (d.date === nyTomorrow || d.date.endsWith(nyTomorrow.slice(5))) {
+          dayName = `Tomorrow (${weekdayShort})`;
+        }
+
         return {
           date: d.date,
-          dayName: i === 0 ? 'Today (Thu)' : i === 1 ? 'Tomorrow (Fri)' : dateObj.toLocaleDateString('en-US', { weekday: 'short' }),
+          dayName,
           fullDayLabel: dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
           formattedDate: dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
           tripDayNumber: meta.tripDayNumber,
@@ -423,6 +474,19 @@ export const WeatherCard: React.FC = () => {
 
       setForecast(fallbackList);
 
+      const targetDayIdx = typeof activeDayIndex === 'number'
+        ? activeDayIndex
+        : (typeof initialDayIndex === 'number' ? initialDayIndex : undefined);
+
+      if (typeof targetDayIdx === 'number' && targetDayIdx >= 0 && targetDayIdx < fallbackList.length) {
+        setSelectedDayIndex(targetDayIdx);
+      } else {
+        const todayIdx = fallbackList.findIndex(d => d.date === nyToday || d.date.endsWith(nyToday.slice(5)));
+        if (todayIdx >= 0) {
+          setSelectedDayIndex(todayIdx);
+        }
+      }
+
       const now = new Date();
       setLastUpdated(
         now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
@@ -438,6 +502,18 @@ export const WeatherCard: React.FC = () => {
     const interval = setInterval(fetchWeather, 30 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Sync when activeDayIndex or initialDayIndex prop changes
+  useEffect(() => {
+    const targetIdx = typeof activeDayIndex === 'number' ? activeDayIndex : initialDayIndex;
+    if (typeof targetIdx === 'number' && targetIdx >= 0 && targetIdx < 6) {
+      setSelectedDayIndex(targetIdx);
+      const targetPage = targetIdx >= 3 ? 1 : 0;
+      if (dailyPage !== targetPage) {
+        scrollToDaySet(targetPage);
+      }
+    }
+  }, [activeDayIndex, initialDayIndex]);
 
   const activeDay = forecast[selectedDayIndex] || forecast[0];
 
@@ -507,6 +583,7 @@ export const WeatherCard: React.FC = () => {
 
   const handleSelectDay = (index: number, fromDirectCardClick = false) => {
     setSelectedDayIndex(index);
+    onSelectDayIndex?.(index);
     setShowHourly(true);
     const targetPage = index >= 3 ? 1 : 0;
 

@@ -69,13 +69,13 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
                     : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
                 }`}
               >
-                <i className="fa-brands fa-google text-[9px]"></i>
-                <span>{photo.accountOwnerName || 'Google Photos'}</span>
+                <i className="fa-solid fa-cloud text-[9px]"></i>
+                <span>{photo.accountOwnerName || 'Cloud Storage'}</span>
               </span>
             )}
             {photo.uploadedByUser && (
               <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 hidden sm:flex">
-                <i className="fa-solid fa-user-check text-[9px]"></i> Face Verified
+                <i className="fa-solid fa-cloud-arrow-up text-[9px]"></i> Cloud Synced
               </span>
             )}
           </div>
