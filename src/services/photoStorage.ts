@@ -155,7 +155,132 @@ export async function getPhotosFromStorage(key: string): Promise<TripPhoto[]> {
     console.warn('Error reading from localStorage fallback:', e);
   }
 
+  // 4. If current storage is empty, auto-recover from legacy databases/caches
+  try {
+    const recovered = await recoverFromLegacyDatabases();
+    if (recovered.length > 0) {
+      console.info(`Auto-recovered ${recovered.length} previously uploaded photo(s) from legacy storage.`);
+      memoryCache[key] = recovered;
+      // Persist to current database for permanent availability
+      await savePhotosToStorage(key, recovered);
+      return recovered;
+    }
+  } catch (e) {
+    console.warn('Auto-recovery check error:', e);
+  }
+
   return memoryCache[key] || [];
+}
+
+/**
+ * Scans older IndexedDB databases and legacy localStorage keys to automatically
+ * restore photos uploaded prior to a schema/database name update.
+ */
+export async function recoverFromLegacyDatabases(): Promise<TripPhoto[]> {
+  const recovered: TripPhoto[] = [];
+  const seenIds = new Set<string>();
+
+  const addIfUnique = (p: any) => {
+    if (!p || !p.src) return;
+    const id = p.id || `recovered_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    if (seenIds.has(id)) return;
+    seenIds.add(id);
+
+    recovered.push({
+      id,
+      dayIndex: typeof p.dayIndex === 'number' ? p.dayIndex : 0,
+      dayLabel: p.dayLabel || 'Trip Day',
+      dayTheme: p.dayTheme,
+      src: p.src,
+      alt: p.alt || p.title || 'Family Photo',
+      title: p.title || 'Family Photo',
+      caption: p.caption,
+      credit: p.credit || 'Family Photo',
+      creditUrl: p.creditUrl,
+      uploadedByUser: true,
+      uploadedAt: p.uploadedAt || 'Previous Upload',
+      tags: Array.isArray(p.tags) ? p.tags : ['Recovered'],
+      accountOwner: p.accountOwner || 'account1',
+      accountOwnerName: p.accountOwnerName || 'Family',
+    });
+  };
+
+  // 1. Recover from legacy IndexedDB 'DCTripPhotosDB' (version 1)
+  try {
+    if (typeof window !== 'undefined' && window.indexedDB) {
+      const legacyDBNames = ['DCTripPhotosDB', 'DCTripPhotosDB_v1', 'trip_photos_db'];
+      for (const dbName of legacyDBNames) {
+        try {
+          const oldDb = await new Promise<IDBDatabase | null>(resolve => {
+            const req = window.indexedDB.open(dbName);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(null);
+          });
+
+          if (oldDb) {
+            if (oldDb.objectStoreNames.contains('photos')) {
+              const oldPhotos = await new Promise<TripPhoto[]>(resolve => {
+                const tx = oldDb.transaction('photos', 'readonly');
+                const store = tx.objectStore('photos');
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result || []);
+                req.onerror = () => resolve([]);
+              });
+              oldPhotos.forEach(addIfUnique);
+            }
+            oldDb.close();
+          }
+        } catch (e) {
+          console.warn(`Notice while inspecting legacy DB ${dbName}:`, e);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Legacy IndexedDB recovery notice:', e);
+  }
+
+  // 2. Recover from legacy localStorage candidate keys
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const candidateKeys = [
+      'dc_cloud_trip_photos_cache',
+      'dc_family_trip_google_photos_v1',
+      'dc_trip_photos_local_v1',
+      'dc_photo_uploader_photos',
+      'dc_trip_photos_cache',
+      'dc_itinerary_photos',
+    ];
+
+    for (const key of candidateKeys) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(addIfUnique);
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 3. Scan all localStorage keys for base64 photo arrays
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.includes('photo') || k.includes('image') || k.includes('upload'))) {
+          try {
+            const val = localStorage.getItem(k);
+            if (val && val.includes('data:image')) {
+              const parsed = JSON.parse(val);
+              const items = Array.isArray(parsed) ? parsed : [parsed];
+              items.forEach(addIfUnique);
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+  }
+
+  return recovered;
 }
 
 /**

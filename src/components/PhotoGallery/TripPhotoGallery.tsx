@@ -7,7 +7,7 @@ import {
   updatePhotoDay,
   uploadPhotosToCloud,
 } from '../../services/cloudPhotoService';
-import { getPhotosFromStorage } from '../../services/photoStorage';
+import { getPhotosFromStorage, recoverFromLegacyDatabases } from '../../services/photoStorage';
 import { TripPhoto } from '../../types';
 import { ExportSharedAlbumModal } from './ExportSharedAlbumModal';
 import { PhotoLightboxModal } from './PhotoLightboxModal';
@@ -84,16 +84,24 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
     }
   }, [initialDayFilter]);
 
-  // Subscribe to real-time Cloud Photos (Firestore) + local storage cache
+  // Subscribe to real-time Cloud Photos (Firestore) + local storage cache + automatic recovery
   useEffect(() => {
     let isMounted = true;
 
     // Load from local storage immediately so no delay
     getPhotosFromStorage(LOCAL_CACHE_KEY)
-      .then(cached => {
+      .then(async cached => {
         if (!isMounted) return;
         if (cached && Array.isArray(cached) && cached.length > 0) {
           setCloudPhotos(cached);
+        } else {
+          // If empty, automatically scan legacy databases and localStorage
+          const recovered = await recoverFromLegacyDatabases();
+          if (isMounted && recovered && recovered.length > 0) {
+            setCloudPhotos(recovered);
+            setStatusMessage(`Restored ${recovered.length} previously uploaded photo(s)!`);
+            setTimeout(() => setStatusMessage(null), 4000);
+          }
         }
       })
       .catch(() => {});
@@ -276,6 +284,27 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
       setErrorMessage(`Move failed: ${e.message}`);
       setTimeout(() => setErrorMessage(null), 4000);
     }
+  };
+
+  // Manually trigger legacy database & cache restoration
+  const handleRecoverPhotos = async () => {
+    setStatusMessage('Scanning browser storage for previous uploads...');
+    try {
+      const recovered = await recoverFromLegacyDatabases();
+      if (recovered.length > 0) {
+        setCloudPhotos(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const newItems = recovered.filter(r => !existingIds.has(r.id));
+          return [...newItems, ...prev];
+        });
+        setStatusMessage(`Restored ${recovered.length} previously uploaded photo(s)!`);
+      } else {
+        setStatusMessage('No previous un-synced photos found in browser history.');
+      }
+    } catch (e) {
+      setStatusMessage('Scan completed.');
+    }
+    setTimeout(() => setStatusMessage(null), 4000);
   };
 
   // Combine default landmark photos with Cloud Storage photos
@@ -471,8 +500,8 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
             </div>
           </div>
 
-          {/* Quick counts */}
-          <div className="flex items-center gap-2 text-xs">
+          {/* Quick counts & Restore button */}
+          <div className="flex items-center gap-2 text-xs flex-wrap">
             <span className="px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-900 font-bold text-[11px] flex items-center gap-1.5 shadow-2xs">
               <span className="w-2 h-2 rounded-full bg-blue-600"></span>
               <span>{acc1Label}:</span>
@@ -483,6 +512,14 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
               <span>{acc2Label}:</span>
               <span className="text-rose-600 font-extrabold">{acc2Count}</span>
             </span>
+            <button
+              onClick={handleRecoverPhotos}
+              className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-[11px] flex items-center gap-1.5 transition shadow-2xs cursor-pointer active:scale-95"
+              title="Search and restore photos uploaded prior to update"
+            >
+              <i className="fa-solid fa-arrows-rotate text-[10px] text-indigo-600"></i>
+              <span>Restore Previous Uploads</span>
+            </button>
           </div>
         </div>
 
