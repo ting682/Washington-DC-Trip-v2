@@ -198,15 +198,15 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
       setStatusMessage(
         `Successfully added ${uploaded.length} photo(s) to ${targetDayLabel}! Saved to Family Cloud.`
       );
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
     } catch (err: any) {
       console.error('Cloud upload error:', err);
       setErrorMessage(`Upload error: ${err.message || 'Could not complete cloud upload'}`);
     } finally {
       setIsUploading(false);
       setUploadProgress(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       setTimeout(() => setStatusMessage(null), 6000);
     }
   };

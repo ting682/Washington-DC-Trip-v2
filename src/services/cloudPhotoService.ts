@@ -203,12 +203,17 @@ export async function uploadPhotosToCloud(
         tags: ['Cloud Storage', accountOwnerName, `Day ${assignedDay + 1}`],
       };
 
-      // Save to Firestore if available
+      // Sync to Firestore in background without blocking local rendering
       try {
         const docRef = doc(db, CLOUD_PHOTOS_COLLECTION, photoId);
-        await setDoc(docRef, photoDoc);
+        Promise.race([
+          setDoc(docRef, photoDoc),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 1500)),
+        ]).catch(firestoreErr => {
+          console.info('Firestore background sync (photo safe in local DB):', firestoreErr?.message || firestoreErr);
+        });
       } catch (firestoreErr) {
-        console.warn('Firestore write warning (saving to robust local cache):', firestoreErr);
+        console.warn('Firestore doc creation error:', firestoreErr);
       }
 
       const fullPhoto: TripPhoto = {
