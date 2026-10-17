@@ -2,9 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DAY_METADATA, DEFAULT_TRIP_PHOTOS } from '../../data/defaultPhotos';
 import {
   deletePhotoFromCloud,
+  LOCAL_CACHE_KEY,
   subscribeToCloudPhotos,
+  updatePhotoDay,
   uploadPhotosToCloud,
 } from '../../services/cloudPhotoService';
+import { getPhotosFromStorage } from '../../services/photoStorage';
 import { TripPhoto } from '../../types';
 import { ExportSharedAlbumModal } from './ExportSharedAlbumModal';
 import { PhotoLightboxModal } from './PhotoLightboxModal';
@@ -20,7 +23,7 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
   onSelectItineraryDay,
   inlineMode = false,
 }) => {
-  // Cloud-synced family photos from Firestore
+  // Cloud-synced family photos from Firestore & local storage cache
   const [cloudPhotos, setCloudPhotos] = useState<TripPhoto[]>([]);
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
 
@@ -36,8 +39,10 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
   const [tempAcc1Label, setTempAcc1Label] = useState(acc1Label);
   const [tempAcc2Label, setTempAcc2Label] = useState(acc2Label);
 
-  // Target Day selector for upload
-  const [uploadTargetDay, setUploadTargetDay] = useState<number | 'auto'>('auto');
+  // Target Day selector for upload - default to current itinerary day if numeric
+  const [uploadTargetDay, setUploadTargetDay] = useState<number | 'auto'>(() => {
+    return typeof initialDayFilter === 'number' ? initialDayFilter : 0;
+  });
 
   // Manual Upload Progress & Status
   const [isUploading, setIsUploading] = useState(false);
@@ -73,13 +78,29 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
   useEffect(() => {
     if (initialDayFilter !== undefined) {
       setSelectedDayFilter(initialDayFilter);
+      if (typeof initialDayFilter === 'number') {
+        setUploadTargetDay(initialDayFilter);
+      }
     }
   }, [initialDayFilter]);
 
-  // Subscribe to real-time Cloud Photos (Firestore)
+  // Subscribe to real-time Cloud Photos (Firestore) + local storage cache
   useEffect(() => {
+    let isMounted = true;
+
+    // Load from local storage immediately so no delay
+    getPhotosFromStorage(LOCAL_CACHE_KEY)
+      .then(cached => {
+        if (!isMounted) return;
+        if (cached && Array.isArray(cached) && cached.length > 0) {
+          setCloudPhotos(cached);
+        }
+      })
+      .catch(() => {});
+
     const unsubscribe = subscribeToCloudPhotos(
       photos => {
+        if (!isMounted) return;
         setCloudPhotos(photos);
         setIsCloudConnected(true);
       },
@@ -89,7 +110,25 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
       }
     );
 
-    return () => unsubscribe();
+    // Listen to photo storage update events from any component
+    const handleStorageUpdate = () => {
+      getPhotosFromStorage(LOCAL_CACHE_KEY)
+        .then(cached => {
+          if (!isMounted) return;
+          if (cached && Array.isArray(cached)) {
+            setCloudPhotos(cached);
+          }
+        })
+        .catch(() => {});
+    };
+
+    window.addEventListener('dc-trip-photos-updated', handleStorageUpdate);
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+      window.removeEventListener('dc-trip-photos-updated', handleStorageUpdate);
+    };
   }, []);
 
   // Save uploader labels
@@ -148,8 +187,16 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
         },
       });
 
+      // Immediate optimistic update in UI
+      setCloudPhotos(prev => {
+        const newIds = new Set(uploaded.map(p => p.id));
+        return [...uploaded, ...prev.filter(p => !newIds.has(p.id))];
+      });
+
+      const targetDayLabel =
+        typeof uploadTargetDay === 'number' ? `Day ${uploadTargetDay + 1}` : 'selected trip day';
       setStatusMessage(
-        `Successfully uploaded ${uploaded.length} photo(s) to Cloud Storage! Synced in real-time.`
+        `Successfully added ${uploaded.length} photo(s) to ${targetDayLabel}! Saved to Family Cloud.`
       );
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -191,6 +238,7 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
     if (confirm('Are you sure you want to delete this photo from Cloud Storage? It will be removed for everyone.')) {
       try {
         await deletePhotoFromCloud(photoId);
+        setCloudPhotos(prev => prev.filter(p => p.id !== photoId));
         setStatusMessage('Photo removed from Cloud Storage.');
         if (lightboxPhotoId === photoId) {
           setLightboxPhotoId(null);
@@ -200,6 +248,33 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
         setErrorMessage(`Delete failed: ${e.message}`);
         setTimeout(() => setErrorMessage(null), 4000);
       }
+    }
+  };
+
+  // Reassign photo to another trip day
+  const handleMovePhotoDay = async (photoId: string, newDayIndex: number) => {
+    try {
+      await updatePhotoDay(photoId, newDayIndex);
+      const meta = DAY_METADATA.find(d => d.index === newDayIndex) || DAY_METADATA[0];
+      setCloudPhotos(prev =>
+        prev.map(p => {
+          if (p.id === photoId) {
+            return {
+              ...p,
+              dayIndex: newDayIndex,
+              dayLabel: meta.label,
+              dayTheme: meta.theme,
+              tags: (p.tags || []).map(t => (t.startsWith('Day ') ? `Day ${newDayIndex + 1}` : t)),
+            };
+          }
+          return p;
+        })
+      );
+      setStatusMessage(`Photo moved to Day ${newDayIndex + 1} (${meta.label})!`);
+      setTimeout(() => setStatusMessage(null), 3500);
+    } catch (e: any) {
+      setErrorMessage(`Move failed: ${e.message}`);
+      setTimeout(() => setErrorMessage(null), 4000);
     }
   };
 
@@ -374,7 +449,7 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
             </span>
             <div>
               <h4 className="serif font-bold text-sm text-slate-900 flex items-center gap-2">
-                <span>Cloud Storage Manual Uploader</span>
+                <span>Family Cloud Photo Uploader</span>
                 <span
                   className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
                     isCloudConnected
@@ -391,7 +466,7 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
                 </span>
               </h4>
               <p className="text-[11px] text-slate-500">
-                Upload pictures from your phone camera roll, computer, or Google Drive folder.
+                Uploaded photos sync to the app's real-time family database and appear immediately in that day's itinerary reel.
               </p>
             </div>
           </div>
@@ -506,7 +581,28 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
                 <i className="fa-solid fa-calendar-day text-blue-600"></i>
                 <span>Assign to Day:</span>
               </span>
-              <span className="text-[10px] text-slate-400">Auto-detects from photo date</span>
+              <span className="text-[10px] text-indigo-700 bg-indigo-50 font-bold px-1.5 py-0.5 rounded">
+                {typeof uploadTargetDay === 'number'
+                  ? `Day ${uploadTargetDay + 1} Selected`
+                  : 'Auto-detecting'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 mb-2">
+              {[0, 1, 2, 3, 4, 5].map(idx => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setUploadTargetDay(idx)}
+                  className={`py-1 px-1 rounded-md text-[11px] font-bold transition cursor-pointer text-center ${
+                    uploadTargetDay === idx
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Day {idx + 1}
+                </button>
+              ))}
             </div>
 
             <select
@@ -517,13 +613,13 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
               }}
               className="w-full py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
-              <option value="auto">✨ Auto-Detect Day (from photo date)</option>
-              <option value="0">Day 1 · Oct 15 (Arrival &amp; Georgetown Dinner)</option>
-              <option value="1">Day 2 · Oct 16 (National Mall &amp; Monuments)</option>
-              <option value="2">Day 3 · Oct 17 (Smithsonian Natural History &amp; Air)</option>
-              <option value="3">Day 4 · Oct 18 (National Zoo &amp; Cathedral)</option>
-              <option value="4">Day 5 · Oct 19 (Arlington &amp; Potomac Cruise)</option>
-              <option value="5">Day 6 · Oct 20 (US Capitol, Library &amp; DCA Fly)</option>
+              <option value="0">Day 1 · Thu Oct 15 (Arrival &amp; Ammathar Thai)</option>
+              <option value="1">Day 2 · Fri Oct 16 (White House &amp; Old Town)</option>
+              <option value="2">Day 3 · Sat Oct 17 (Smithsonian &amp; The Wharf)</option>
+              <option value="3">Day 4 · Sun Oct 18 (Spy Museum &amp; Lincoln Sunset)</option>
+              <option value="4">Day 5 · Mon Oct 19 (Zoo Pandas &amp; Capitol Hill)</option>
+              <option value="5">Day 6 · Tue Oct 20 (Departure &amp; DCA Terminal 2)</option>
+              <option value="auto">✨ Auto-Detect Day (from file photo date)</option>
             </select>
           </div>
         </div>
@@ -901,6 +997,11 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
           onDelete={
             currentLightboxPhoto.uploadedByUser
               ? () => handleDeletePhoto(currentLightboxPhoto.id)
+              : undefined
+          }
+          onMoveDay={
+            currentLightboxPhoto.uploadedByUser
+              ? handleMovePhotoDay
               : undefined
           }
         />

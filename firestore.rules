@@ -32,12 +32,14 @@ service cloud.firestore {
 
     // Shared Family Trip Checklists (Packing & Passes - No Passcode Required)
     match /trip_checklists/{docId} {
-      allow read, write: if isValidId(docId);
+      allow read: if true;
+      allow write: if isValidId(docId);
     }
 
     // Shared Family Trip Photos (Cloud Storage Collection)
     match /trip_photos/{photoId} {
-      allow read, write: if isValidId(photoId);
+      allow read: if true;
+      allow write: if isValidId(photoId);
     }
   }
 }

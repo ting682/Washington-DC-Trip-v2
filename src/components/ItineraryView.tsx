@@ -5,6 +5,7 @@ import { WeatherCard } from './WeatherCard';
 import { TripPhotoGallery } from './PhotoGallery/TripPhotoGallery';
 import { DayPhotoReel } from './PhotoGallery/DayPhotoReel';
 import { PhotoLightboxModal } from './PhotoGallery/PhotoLightboxModal';
+import { deletePhotoFromCloud, updatePhotoDay } from '../services/cloudPhotoService';
 
 interface ItineraryViewProps {
   activeDayIndex: number;
@@ -571,22 +572,25 @@ export const ItineraryView: React.FC<ItineraryViewProps> = ({
         )}
 
         {/* Modal for Reel Photo Lightbox */}
-        {/* Modal for Reel Photo Lightbox */}
         <PhotoLightboxModal
           photo={reelLightboxPhoto}
           onClose={() => setReelLightboxPhoto(null)}
-          onDelete={id => {
+          onDelete={async id => {
             try {
-              const STORAGE_KEY = 'dc_family_trip_google_photos_v1';
-              const existing = localStorage.getItem(STORAGE_KEY);
-              if (existing) {
-                const parsed: TripPhoto[] = JSON.parse(existing);
-                const updated = parsed.filter(p => p.id !== id);
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-                setGalleryVersion(v => v + 1);
-              }
+              await deletePhotoFromCloud(id);
+              setReelLightboxPhoto(null);
+              setGalleryVersion(v => v + 1);
             } catch (e) {
-              console.warn(e);
+              console.warn('Delete photo warning:', e);
+            }
+          }}
+          onMoveDay={async (id, newDay) => {
+            try {
+              await updatePhotoDay(id, newDay);
+              setReelLightboxPhoto(prev => (prev ? { ...prev, dayIndex: newDay } : null));
+              setGalleryVersion(v => v + 1);
+            } catch (e) {
+              console.warn('Move photo warning:', e);
             }
           }}
         />

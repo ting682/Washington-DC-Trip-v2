@@ -7,6 +7,7 @@ interface PhotoLightboxModalProps {
   onPrev?: () => void;
   onNext?: () => void;
   onDelete?: (id: string) => void;
+  onMoveDay?: (id: string, newDay: number) => void;
   hasPrev?: boolean;
   hasNext?: boolean;
   currentIndex?: number;
@@ -20,6 +21,7 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
   onPrev,
   onNext,
   onDelete,
+  onMoveDay,
   hasPrev,
   hasNext,
   currentIndex,
@@ -192,28 +194,48 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
             </div>
           )}
 
-          {/* Attribution / Upload timestamp */}
-          <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between text-[11px] text-slate-400">
-            {photo.credit && (
-              <div>
-                {photo.creditUrl ? (
-                  <a
-                    href={photo.creditUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="hover:text-blue-400 transition underline underline-offset-2"
-                  >
-                    {photo.credit}
-                  </a>
-                ) : (
-                  <span>{photo.credit}</span>
-                )}
+          {/* Attribution / Upload timestamp / Move Day Action */}
+          <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+            <div className="flex items-center gap-3 flex-wrap">
+              {photo.credit && (
+                <div>
+                  {photo.creditUrl ? (
+                    <a
+                      href={photo.creditUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-blue-400 transition underline underline-offset-2"
+                    >
+                      {photo.credit}
+                    </a>
+                  ) : (
+                    <span>{photo.credit}</span>
+                  )}
+                </div>
+              )}
+              {photo.uploadedAt && (
+                <span className="text-slate-400">
+                  Uploaded {photo.uploadedAt}
+                </span>
+              )}
+            </div>
+
+            {photo.uploadedByUser && onMoveDay && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-slate-400">Move to:</span>
+                <select
+                  value={photo.dayIndex}
+                  onChange={e => onMoveDay(photo.id, parseInt(e.target.value, 10))}
+                  className="bg-slate-800 border border-slate-700 text-white rounded px-2 py-0.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-400 cursor-pointer"
+                >
+                  <option value={0}>Day 1 (Oct 15 - Arrival)</option>
+                  <option value={1}>Day 2 (Oct 16 - White House)</option>
+                  <option value={2}>Day 3 (Oct 17 - Smithsonian)</option>
+                  <option value={3}>Day 4 (Oct 18 - Spy Museum)</option>
+                  <option value={4}>Day 5 (Oct 19 - Zoo Pandas)</option>
+                  <option value={5}>Day 6 (Oct 20 - Departure)</option>
+                </select>
               </div>
-            )}
-            {photo.uploadedAt && (
-              <span className="text-slate-400">
-                Uploaded {photo.uploadedAt}
-              </span>
             )}
           </div>
         </div>

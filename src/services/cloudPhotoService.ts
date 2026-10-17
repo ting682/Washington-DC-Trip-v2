@@ -14,7 +14,7 @@ import { TripPhoto } from '../types';
 import { compressImageFile, getPhotosFromStorage, savePhotosToStorage } from './photoStorage';
 
 const CLOUD_PHOTOS_COLLECTION = 'trip_photos';
-const LOCAL_CACHE_KEY = 'dc_cloud_trip_photos_cache';
+export const LOCAL_CACHE_KEY = 'dc_cloud_trip_photos_cache';
 
 export interface CloudUploadOptions {
   accountOwner: 'account1' | 'account2' | 'family';
@@ -34,10 +34,12 @@ export function subscribeToCloudPhotos(
 ): () => void {
   // First emit locally cached photos for zero delay
   getPhotosFromStorage(LOCAL_CACHE_KEY).then(cached => {
-    if (cached && cached.length > 0) {
+    if (cached) {
       callback(cached);
     }
-  }).catch(() => {});
+  }).catch(() => {
+    callback([]);
+  });
 
   try {
     const photosCol = collection(db, CLOUD_PHOTOS_COLLECTION);
@@ -74,7 +76,11 @@ export function subscribeToCloudPhotos(
         callback(photos);
       },
       err => {
-        console.warn('Firestore trip_photos subscription error, falling back to cache:', err);
+        console.warn('Firestore trip_photos subscription error, falling back to local storage cache:', err);
+        // Ensure UI still gets cached photos even if Firestore permissions/network fail
+        getPhotosFromStorage(LOCAL_CACHE_KEY).then(cached => {
+          callback(cached || []);
+        }).catch(() => {});
         if (onError) onError(err);
       }
     );
@@ -82,6 +88,9 @@ export function subscribeToCloudPhotos(
     return unsubscribe;
   } catch (err: any) {
     console.warn('Could not initialize trip_photos listener:', err);
+    getPhotosFromStorage(LOCAL_CACHE_KEY).then(cached => {
+      callback(cached || []);
+    }).catch(() => {});
     if (onError) onError(err);
     return () => {};
   }
@@ -122,7 +131,7 @@ export async function getCloudPhotos(): Promise<TripPhoto[]> {
       return photos;
     }
   } catch (e) {
-    console.warn('Error fetching cloud photos:', e);
+    console.warn('Error fetching cloud photos from Firestore, using local cache:', e);
   }
 
   // Fallback to local cache
@@ -130,25 +139,25 @@ export async function getCloudPhotos(): Promise<TripPhoto[]> {
 }
 
 /**
- * Upload manual photo files to Cloud Storage (Firestore collection `trip_photos`)
+ * Upload manual photo files to Cloud Storage (Firestore collection `trip_photos` & IndexedDB cache)
  * Compresses images for fast cloud sync and optimal document storage.
  */
 export async function uploadPhotosToCloud(
   files: File[],
   options: CloudUploadOptions
 ): Promise<TripPhoto[]> {
-  const { accountOwner, accountOwnerName, targetDayIndex = 'auto', onProgress } = options;
+  const { accountOwner, accountOwnerName, targetDayIndex = 0, onProgress } = options;
   const uploadedPhotos: TripPhoto[] = [];
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
 
     try {
-      // Compress image to 1280px max dimension, quality 0.82 to stay under 250KB
-      const compressedDataUrl = await compressImageFile(file, 1280, 0.82);
+      // Compress image to 1100px max dimension, quality 0.78 to guarantee fast rendering and ~120-180KB footprint
+      const compressedDataUrl = await compressImageFile(file, 1100, 0.78);
 
       // Determine day: check explicit target or auto-detect from file timestamp
-      let assignedDay = 0;
+      let assignedDay = 0; // Default to Day 1 (Thursday, Oct 15 arrival)
       if (typeof targetDayIndex === 'number' && targetDayIndex >= 0 && targetDayIndex <= 5) {
         assignedDay = targetDayIndex;
       } else if (file.lastModified) {
@@ -157,10 +166,10 @@ export async function uploadPhotosToCloud(
         if (dayOfMonth >= 15 && dayOfMonth <= 20) {
           assignedDay = dayOfMonth - 15;
         } else {
-          assignedDay = i % 6;
+          assignedDay = 0; // Default to Day 1
         }
       } else {
-        assignedDay = i % 6;
+        assignedDay = 0;
       }
 
       const dayMeta = DAY_METADATA.find(d => d.index === assignedDay) || DAY_METADATA[0];
@@ -184,7 +193,7 @@ export async function uploadPhotosToCloud(
         dayTheme: dayMeta.theme,
         src: compressedDataUrl,
         caption: `Uploaded by ${accountOwnerName} · ${dayMeta.label}`,
-        credit: `${accountOwnerName} · Cloud Storage`,
+        credit: `${accountOwnerName} · Family Cloud`,
         uploadedByUser: true,
         accountOwner,
         accountOwnerName,
@@ -194,12 +203,12 @@ export async function uploadPhotosToCloud(
         tags: ['Cloud Storage', accountOwnerName, `Day ${assignedDay + 1}`],
       };
 
-      // Save to Firestore
+      // Save to Firestore if available
       try {
         const docRef = doc(db, CLOUD_PHOTOS_COLLECTION, photoId);
         await setDoc(docRef, photoDoc);
       } catch (firestoreErr) {
-        console.warn('Firestore write error, saving to local cache:', firestoreErr);
+        console.warn('Firestore write warning (saving to robust local cache):', firestoreErr);
       }
 
       const fullPhoto: TripPhoto = {
@@ -218,7 +227,74 @@ export async function uploadPhotosToCloud(
     }
   }
 
+  // Persist all uploaded photos to local IndexedDB cache for instant zero-latency availability
+  if (uploadedPhotos.length > 0) {
+    try {
+      const existing = await getPhotosFromStorage(LOCAL_CACHE_KEY);
+      const existingIds = new Set(uploadedPhotos.map(p => p.id));
+      const combined = [...uploadedPhotos, ...existing.filter(p => !existingIds.has(p.id))];
+      await savePhotosToStorage(LOCAL_CACHE_KEY, combined);
+    } catch (cacheErr) {
+      console.warn('Error saving to local cache:', cacheErr);
+    }
+
+    // Explicitly dispatch event so all DayPhotoReel and TripPhotoGallery components update instantly
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('dc-trip-photos-updated', {
+          detail: { uploaded: uploadedPhotos, count: uploadedPhotos.length },
+        })
+      );
+    }
+  }
+
   return uploadedPhotos;
+}
+
+/**
+ * Move / reassign a photo to a different trip day
+ */
+export async function updatePhotoDay(photoId: string, newDayIndex: number): Promise<void> {
+  const dayMeta = DAY_METADATA.find(d => d.index === newDayIndex) || DAY_METADATA[0];
+
+  try {
+    const docRef = doc(db, CLOUD_PHOTOS_COLLECTION, photoId);
+    await setDoc(
+      docRef,
+      {
+        dayIndex: newDayIndex,
+        dayLabel: dayMeta.label,
+        dayTheme: dayMeta.theme,
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('Firestore updatePhotoDay warning:', err);
+  }
+
+  // Update in local cache
+  try {
+    const cached = await getPhotosFromStorage(LOCAL_CACHE_KEY);
+    const updated = cached.map(p => {
+      if (p.id === photoId) {
+        return {
+          ...p,
+          dayIndex: newDayIndex,
+          dayLabel: dayMeta.label,
+          dayTheme: dayMeta.theme,
+          tags: (p.tags || []).map(t => (t.startsWith('Day ') ? `Day ${newDayIndex + 1}` : t)),
+        };
+      }
+      return p;
+    });
+    await savePhotosToStorage(LOCAL_CACHE_KEY, updated);
+  } catch (e) {
+    console.warn('Error updating local photo cache:', e);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('dc-trip-photos-updated'));
+  }
 }
 
 /**
@@ -238,4 +314,8 @@ export async function deletePhotoFromCloud(photoId: string): Promise<void> {
     const updated = cached.filter(p => p.id !== photoId);
     await savePhotosToStorage(LOCAL_CACHE_KEY, updated);
   } catch (e) {}
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('dc-trip-photos-updated'));
+  }
 }
