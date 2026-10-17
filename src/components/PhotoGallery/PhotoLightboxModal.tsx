@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TripPhoto } from '../../types';
 
 interface PhotoLightboxModalProps {
@@ -28,16 +28,24 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
   totalCount,
   onOpenExport,
 }) => {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   useEffect(() => {
     if (!photo) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (showDeleteConfirm) {
+          setShowDeleteConfirm(false);
+        } else {
+          onClose();
+        }
+      }
       if (e.key === 'ArrowLeft' && onPrev && hasPrev) onPrev();
       if (e.key === 'ArrowRight' && onNext && hasNext) onNext();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [photo, onPrev, onNext, hasPrev, hasNext, onClose]);
+  }, [photo, onPrev, onNext, hasPrev, hasNext, onClose, showDeleteConfirm]);
 
   if (!photo) return null;
 
@@ -45,55 +53,99 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-fadeIn"
+      className="fixed inset-0 z-50 bg-slate-950/92 backdrop-blur-md flex items-center justify-center p-2 sm:p-6 animate-fadeIn select-none"
       onClick={onClose}
     >
       <div
-        className="relative max-w-4xl w-full bg-slate-900 border border-slate-700/80 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]"
+        className="relative max-w-4xl w-full bg-slate-900 border border-slate-700/80 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[96vh] sm:max-h-[92vh]"
         onClick={e => e.stopPropagation()}
       >
-        {/* Top bar */}
-        <div className="flex items-center justify-between px-4 py-3 bg-slate-950/70 border-b border-slate-800 text-white">
-          <div className="flex items-center gap-2.5 truncate">
-            <span className="text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+        {/* SAFE CONFIRMATION DIALOG FOR PHOTO DELETION */}
+        {showDeleteConfirm && (
+          <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 max-w-sm w-full text-center shadow-2xl space-y-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 mx-auto flex items-center justify-center text-xl border border-rose-500/30">
+                <i className="fa-solid fa-triangle-exclamation"></i>
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-white">Delete Photo from Cloud?</h4>
+                <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                  Are you sure you want to permanently delete this photo? It will be removed from the family cloud and daily itinerary for all devices.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition cursor-pointer active:scale-95 border border-slate-700"
+                >
+                  Keep Photo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    if (onDelete) onDelete(photo.id);
+                    onClose();
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition cursor-pointer shadow-md active:scale-95"
+                >
+                  Yes, Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TOP BAR: Prominent Exit buttons and clear photo counter */}
+        <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-950/80 border-b border-slate-800 text-white gap-2">
+          {/* Mobile-Friendly Back / Exit Button on Left */}
+          <button
+            onClick={onClose}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs sm:text-sm transition cursor-pointer shadow-xs active:scale-95 border border-slate-700 shrink-0"
+            title="Exit photo viewer"
+          >
+            <i className="fa-solid fa-arrow-left text-xs"></i>
+            <span>Back</span>
+          </button>
+
+          {/* Photo Info Badge */}
+          <div className="flex items-center gap-2 truncate min-w-0">
+            <span className="text-[11px] sm:text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">
               {photo.dayLabel}
             </span>
             {currentIndex !== undefined && totalCount !== undefined && (
-              <span className="text-xs text-slate-400 font-mono">
-                {currentIndex + 1} of {totalCount}
+              <span className="text-[11px] sm:text-xs text-slate-400 font-mono shrink-0">
+                {currentIndex + 1} / {totalCount}
               </span>
             )}
             {photo.uploadedByUser && (
               <span
-                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 border ${
+                className={`text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full items-center gap-1 border shrink-0 hidden sm:flex ${
                   photo.accountOwner === 'account2'
                     ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                     : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
                 }`}
               >
-                <i className="fa-solid fa-cloud text-[9px]"></i>
-                <span>{photo.accountOwnerName || 'Cloud Storage'}</span>
-              </span>
-            )}
-            {photo.uploadedByUser && (
-              <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 hidden sm:flex">
-                <i className="fa-solid fa-cloud-arrow-up text-[9px]"></i> Cloud Synced
+                <i className="fa-solid fa-cloud text-[8px]"></i>
+                <span>{photo.accountOwnerName || 'Family'}</span>
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Actions on Right: Export & Clear Distinct Close Button */}
+          <div className="flex items-center gap-1.5 shrink-0">
             {onOpenExport && (
               <button
                 onClick={() => {
                   onClose();
                   onOpenExport();
                 }}
-                className="text-xs bg-indigo-600/80 hover:bg-indigo-600 text-white font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition active:scale-95"
+                className="text-xs bg-indigo-600/80 hover:bg-indigo-600 text-white font-semibold px-2.5 py-1.5 rounded-xl items-center gap-1.5 transition active:scale-95 hidden md:flex"
                 title="Create Google Shared Album or download archive"
               >
                 <i className="fa-solid fa-share-nodes text-[11px]"></i>
-                <span className="hidden sm:inline">Export Album</span>
+                <span>Export</span>
               </button>
             )}
 
@@ -102,39 +154,27 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
               target="_blank"
               rel="noopener noreferrer"
               download={`${photo.title.replace(/\s+/g, '_')}.jpg`}
-              className="text-slate-300 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition"
+              className="text-slate-300 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition"
               title="Open full size / Save"
             >
-              <i className="fa-solid fa-arrow-up-right-from-square text-sm"></i>
+              <i className="fa-solid fa-arrow-up-right-from-square text-xs sm:text-sm"></i>
             </a>
 
-            {photo.uploadedByUser && onDelete && (
-              <button
-                onClick={() => {
-                  if (confirm('Delete this uploaded photo?')) {
-                    onDelete(photo.id);
-                    onClose();
-                  }
-                }}
-                className="text-red-400 hover:text-red-300 p-2 rounded-lg hover:bg-red-950/50 transition cursor-pointer"
-                title="Delete photo"
-              >
-                <i className="fa-regular fa-trash-can text-sm"></i>
-              </button>
-            )}
-
+            {/* Clear, unmistakable CLOSE button */}
             <button
               onClick={onClose}
-              className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition cursor-pointer"
-              title="Close (Esc)"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs sm:text-sm transition cursor-pointer border border-white/20 shadow-xs active:scale-95"
+              title="Close viewer (Esc)"
+              aria-label="Close photo viewer"
             >
-              <i className="fa-solid fa-xmark text-lg"></i>
+              <i className="fa-solid fa-xmark text-sm"></i>
+              <span className="hidden xs:inline">Close</span>
             </button>
           </div>
         </div>
 
-        {/* Image viewport with navigation buttons */}
-        <div className="relative flex-1 bg-black flex items-center justify-center min-h-[300px] max-h-[58vh] overflow-hidden select-none">
+        {/* IMAGE VIEWPORT WITH BIG TOUCH NAVIGATION ARROWS */}
+        <div className="relative flex-1 bg-black flex items-center justify-center min-h-[260px] sm:min-h-[320px] max-h-[52vh] sm:max-h-[58vh] overflow-hidden select-none">
           <img
             src={photo.src}
             alt={photo.alt || photo.title}
@@ -145,44 +185,46 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
           {hasPrev && onPrev && (
             <button
               onClick={onPrev}
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white flex items-center justify-center transition backdrop-blur-xs border border-white/10 shadow-lg cursor-pointer hover:scale-105 active:scale-95"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-slate-900/85 hover:bg-slate-800 text-white flex items-center justify-center transition backdrop-blur-xs border border-white/15 shadow-xl cursor-pointer hover:scale-105 active:scale-90"
               title="Previous photo (Left arrow)"
+              aria-label="Previous photo"
             >
-              <i className="fa-solid fa-chevron-left text-base"></i>
+              <i className="fa-solid fa-chevron-left text-sm sm:text-base"></i>
             </button>
           )}
 
           {hasNext && onNext && (
             <button
               onClick={onNext}
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white flex items-center justify-center transition backdrop-blur-xs border border-white/10 shadow-lg cursor-pointer hover:scale-105 active:scale-95"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-slate-900/85 hover:bg-slate-800 text-white flex items-center justify-center transition backdrop-blur-xs border border-white/15 shadow-xl cursor-pointer hover:scale-105 active:scale-90"
               title="Next photo (Right arrow)"
+              aria-label="Next photo"
             >
-              <i className="fa-solid fa-chevron-right text-base"></i>
+              <i className="fa-solid fa-chevron-right text-sm sm:text-base"></i>
             </button>
           )}
         </div>
 
-        {/* Caption & details info panel */}
-        <div className="p-4 sm:p-5 bg-slate-900 text-slate-200 border-t border-slate-800 overflow-y-auto max-h-[28vh]">
-          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
-            <h3 className="serif text-lg sm:text-xl font-bold text-white tracking-wide">
+        {/* CAPTION & DETAILS DRAWER */}
+        <div className="p-3.5 sm:p-5 bg-slate-900 text-slate-200 border-t border-slate-800 overflow-y-auto max-h-[30vh]">
+          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-2">
+            <h3 className="serif text-base sm:text-xl font-bold text-white tracking-wide truncate">
               {photo.title}
             </h3>
-            <span className="text-xs text-slate-400 font-medium">
+            <span className="text-xs text-slate-400 font-medium truncate">
               {photo.dayTheme}
             </span>
           </div>
 
           {photo.caption && (
-            <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-300 mt-1.5 leading-relaxed">
               {photo.caption}
             </p>
           )}
 
           {/* Tags */}
           {photo.tags && photo.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-3">
+            <div className="flex flex-wrap gap-1.5 mt-2.5">
               {photo.tags.map(tag => (
                 <span
                   key={tag}
@@ -194,7 +236,7 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
             </div>
           )}
 
-          {/* Attribution / Upload timestamp / Move Day Action */}
+          {/* Attribution & Move Day Action */}
           <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
             <div className="flex items-center gap-3 flex-wrap">
               {photo.credit && (
@@ -222,11 +264,11 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
 
             {photo.uploadedByUser && onMoveDay && (
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-slate-400">Move to:</span>
+                <span className="text-[10px] text-slate-400 font-medium">Assign Day:</span>
                 <select
                   value={photo.dayIndex}
                   onChange={e => onMoveDay(photo.id, parseInt(e.target.value, 10))}
-                  className="bg-slate-800 border border-slate-700 text-white rounded px-2 py-0.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-400 cursor-pointer"
+                  className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2 py-1 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-400 cursor-pointer"
                 >
                   <option value={0}>Day 1 (Oct 15 - Arrival)</option>
                   <option value={1}>Day 2 (Oct 16 - White House)</option>
@@ -238,6 +280,35 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
               </div>
             )}
           </div>
+
+          {/* DEDICATED ISOLATED DELETE ACTION (Completely separated from close controls) */}
+          {photo.uploadedByUser && onDelete && (
+            <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between">
+              <span className="text-[11px] text-slate-500">
+                Uploaded by {photo.accountOwnerName || 'Family'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 px-3 py-1.5 rounded-lg border border-rose-900/50 transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+                title="Delete this photo from family cloud"
+              >
+                <i className="fa-regular fa-trash-can text-xs"></i>
+                <span>Delete Photo</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* MOBILE STICKY BOTTOM EXIT BAR: One-thumb tap to exit back to photos */}
+        <div className="p-2.5 bg-slate-950 border-t border-slate-800 sm:hidden">
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 border border-slate-700 shadow-sm active:scale-98 cursor-pointer"
+          >
+            <i className="fa-solid fa-arrow-left text-xs text-slate-400"></i>
+            <span>Back to Photos</span>
+          </button>
         </div>
       </div>
     </div>

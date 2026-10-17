@@ -1133,22 +1133,10 @@ const PhotoCard: React.FC<PhotoCardProps> = ({ photo, onSelect, onDelete }) => {
         </div>
 
         {/* Hover overlay hint */}
-        <div className="absolute inset-0 bg-slate-950/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-          <span className="w-8 h-8 rounded-full bg-white/90 text-slate-800 flex items-center justify-center text-xs shadow-md">
+        <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <span className="w-8 h-8 rounded-full bg-white/95 text-slate-800 flex items-center justify-center text-xs shadow-md">
             <i className="fa-solid fa-expand"></i>
           </span>
-          {onDelete && (
-            <button
-              onClick={e => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              className="w-8 h-8 rounded-full bg-white/90 hover:bg-rose-600 hover:text-white text-rose-600 flex items-center justify-center text-xs shadow-md transition cursor-pointer"
-              title="Delete photo"
-            >
-              <i className="fa-solid fa-trash-can"></i>
-            </button>
-          )}
         </div>
       </div>
 
