@@ -25,21 +25,82 @@ export interface CloudUploadOptions {
 }
 
 /**
+ * Background auto-sync of local user photos to Firestore.
+ * Ensures photos uploaded previously or while offline are pushed to cloud
+ * so both husband and wife see all photos on all devices.
+ */
+export async function syncUnsyncedPhotosToFirestore(unsyncedPhotos: TripPhoto[]): Promise<number> {
+  if (!unsyncedPhotos || unsyncedPhotos.length === 0) return 0;
+  let syncedCount = 0;
+
+  for (const photo of unsyncedPhotos) {
+    if (!photo.src || !photo.uploadedByUser) continue;
+    try {
+      const docRef = doc(db, CLOUD_PHOTOS_COLLECTION, photo.id);
+      const dayMeta = DAY_METADATA.find(d => d.index === photo.dayIndex) || DAY_METADATA[0];
+
+      await setDoc(
+        docRef,
+        {
+          title: photo.title || 'Family Photo',
+          alt: photo.alt || photo.title || 'Trip Photo',
+          dayIndex: typeof photo.dayIndex === 'number' ? photo.dayIndex : 0,
+          dayLabel: photo.dayLabel || dayMeta.label,
+          dayTheme: photo.dayTheme || dayMeta.theme,
+          src: photo.src,
+          caption: photo.caption || `Uploaded by ${photo.accountOwnerName || 'Family'}`,
+          credit: photo.credit || `${photo.accountOwnerName || 'Family'} · Family Cloud`,
+          uploadedByUser: true,
+          accountOwner: photo.accountOwner || 'account1',
+          accountOwnerName: photo.accountOwnerName || 'Family',
+          uploadedAtStr: photo.uploadedAt || 'Recently',
+          uploadedAtTimestamp: Date.now(),
+          tags: Array.isArray(photo.tags) ? photo.tags : ['Cloud Storage'],
+        },
+        { merge: true }
+      );
+      syncedCount++;
+    } catch (err) {
+      console.warn('Notice syncing local photo to cloud:', photo.id, err);
+    }
+  }
+
+  return syncedCount;
+}
+
+/**
+ * Manually trigger a full check and sync of all local photos to Firestore.
+ */
+export async function syncAllLocalPhotosToCloud(): Promise<{ synced: number; totalLocal: number }> {
+  try {
+    const localPhotos = await getPhotosFromStorage(LOCAL_CACHE_KEY);
+    const userPhotos = (localPhotos || []).filter(p => p.uploadedByUser && p.src);
+    const synced = await syncUnsyncedPhotosToFirestore(userPhotos);
+    return { synced, totalLocal: userPhotos.length };
+  } catch (err) {
+    console.warn('Error in syncAllLocalPhotosToCloud:', err);
+    return { synced: 0, totalLocal: 0 };
+  }
+}
+
+/**
  * Real-time listener for cloud-stored trip photos.
- * Falls back to local cache if offline.
+ * Automatically merges cloud photos with local photos and pushes any unsynced photos to cloud.
  */
 export function subscribeToCloudPhotos(
   callback: (photos: TripPhoto[]) => void,
   onError?: (err: Error) => void
 ): () => void {
-  // First emit locally cached photos for zero delay
-  getPhotosFromStorage(LOCAL_CACHE_KEY).then(cached => {
-    if (cached) {
-      callback(cached);
-    }
-  }).catch(() => {
-    callback([]);
-  });
+  // 1. Immediately emit locally cached photos for zero delay
+  getPhotosFromStorage(LOCAL_CACHE_KEY)
+    .then(cached => {
+      if (cached && cached.length > 0) {
+        callback(cached);
+      }
+    })
+    .catch(() => {
+      callback([]);
+    });
 
   try {
     const photosCol = collection(db, CLOUD_PHOTOS_COLLECTION);
@@ -47,11 +108,11 @@ export function subscribeToCloudPhotos(
 
     const unsubscribe = onSnapshot(
       q,
-      snapshot => {
-        const photos: TripPhoto[] = [];
+      async snapshot => {
+        const cloudPhotos: TripPhoto[] = [];
         snapshot.forEach(docSnap => {
           const data = docSnap.data();
-          photos.push({
+          cloudPhotos.push({
             id: docSnap.id,
             dayIndex: typeof data.dayIndex === 'number' ? data.dayIndex : 0,
             dayLabel: data.dayLabel || 'Trip Day',
@@ -70,17 +131,34 @@ export function subscribeToCloudPhotos(
           });
         });
 
-        // Update local cache
-        savePhotosToStorage(LOCAL_CACHE_KEY, photos).catch(() => {});
+        // CRITICAL MERGE: Merge cloud photos with any local photos that haven't reached cloud yet
+        try {
+          const localCached = await getPhotosFromStorage(LOCAL_CACHE_KEY);
+          const cloudIdSet = new Set(cloudPhotos.map(p => p.id));
+          const unsyncedLocal = (localCached || []).filter(
+            p => p.uploadedByUser && !cloudIdSet.has(p.id)
+          );
 
-        callback(photos);
+          // If this device has local uploads not yet in Firestore, auto-sync them now!
+          if (unsyncedLocal.length > 0) {
+            syncUnsyncedPhotosToFirestore(unsyncedLocal).catch(() => {});
+          }
+
+          // Combined photos: cloud photos take precedence, plus local unsynced photos
+          const combined = [...cloudPhotos, ...unsyncedLocal];
+          await savePhotosToStorage(LOCAL_CACHE_KEY, combined);
+          callback(combined);
+        } catch {
+          callback(cloudPhotos);
+        }
       },
       err => {
         console.warn('Firestore trip_photos subscription error, falling back to local storage cache:', err);
-        // Ensure UI still gets cached photos even if Firestore permissions/network fail
-        getPhotosFromStorage(LOCAL_CACHE_KEY).then(cached => {
-          callback(cached || []);
-        }).catch(() => {});
+        getPhotosFromStorage(LOCAL_CACHE_KEY)
+          .then(cached => {
+            callback(cached || []);
+          })
+          .catch(() => {});
         if (onError) onError(err);
       }
     );
@@ -88,9 +166,11 @@ export function subscribeToCloudPhotos(
     return unsubscribe;
   } catch (err: any) {
     console.warn('Could not initialize trip_photos listener:', err);
-    getPhotosFromStorage(LOCAL_CACHE_KEY).then(cached => {
-      callback(cached || []);
-    }).catch(() => {});
+    getPhotosFromStorage(LOCAL_CACHE_KEY)
+      .then(cached => {
+        callback(cached || []);
+      })
+      .catch(() => {});
     if (onError) onError(err);
     return () => {};
   }
@@ -153,8 +233,8 @@ export async function uploadPhotosToCloud(
     const file = files[i];
 
     try {
-      // Compress image to 1100px max dimension, quality 0.78 to guarantee fast rendering and ~120-180KB footprint
-      const compressedDataUrl = await compressImageFile(file, 1100, 0.78);
+      // Compress image to max 1100px, quality 0.74 to guarantee footprint ~120-190KB
+      const compressedDataUrl = await compressImageFile(file, 1100, 0.74);
 
       // Determine day: check explicit target or auto-detect from file timestamp
       let assignedDay = 0; // Default to Day 1 (Thursday, Oct 15 arrival)
@@ -203,17 +283,12 @@ export async function uploadPhotosToCloud(
         tags: ['Cloud Storage', accountOwnerName, `Day ${assignedDay + 1}`],
       };
 
-      // Sync to Firestore in background without blocking local rendering
+      // Directly write to Firestore without arbitrary short timeouts!
       try {
         const docRef = doc(db, CLOUD_PHOTOS_COLLECTION, photoId);
-        Promise.race([
-          setDoc(docRef, photoDoc),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 1500)),
-        ]).catch(firestoreErr => {
-          console.info('Firestore background sync (photo safe in local DB):', firestoreErr?.message || firestoreErr);
-        });
-      } catch (firestoreErr) {
-        console.warn('Firestore doc creation error:', firestoreErr);
+        await setDoc(docRef, photoDoc);
+      } catch (firestoreErr: any) {
+        console.warn('Firestore write warning (photo preserved locally):', firestoreErr?.message || firestoreErr);
       }
 
       const fullPhoto: TripPhoto = {

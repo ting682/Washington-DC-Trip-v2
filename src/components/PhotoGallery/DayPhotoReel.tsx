@@ -90,9 +90,16 @@ export const DayPhotoReel: React.FC<DayPhotoReelProps> = ({
     setUploadToast(`Uploading ${fileArray.length} photo(s) to Day ${dayIndex + 1}...`);
 
     try {
-      const uploaderName = localStorage.getItem('dc_photo_uploader_acc1') || 'Family';
+      const activeRole = (localStorage.getItem('dc_active_uploader') as 'account1' | 'account2' | 'family') || 'account1';
+      const uploaderName =
+        activeRole === 'account2'
+          ? localStorage.getItem('dc_photo_uploader_acc2') || 'Wife'
+          : activeRole === 'account1'
+          ? localStorage.getItem('dc_photo_uploader_acc1') || 'Ting (Me)'
+          : 'Family';
+
       const uploaded = await uploadPhotosToCloud(fileArray, {
-        accountOwner: 'account1',
+        accountOwner: activeRole,
         accountOwnerName: uploaderName,
         targetDayIndex: dayIndex, // Explicitly lock to this day!
       });

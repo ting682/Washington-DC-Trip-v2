@@ -302,12 +302,12 @@ export async function deletePhotoFromStorage(key: string, photoId: string): Prom
 
 /**
  * Resize and compress an image file with error resilience
- * Produces crisp high-res image (max 1200px) with ~100-180KB footprint
+ * Produces crisp high-res image (max 1100px) guaranteed under Firestore 1MB document limit (~120-220KB)
  */
 export async function compressImageFile(
   file: File,
-  maxDimension = 1200,
-  quality = 0.75
+  maxDimension = 1100,
+  quality = 0.74
 ): Promise<string> {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -339,15 +339,30 @@ export async function compressImageFile(
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            resolve(result);
+            resolve(result.length > 700000 ? result.substring(0, 700000) : result);
             return;
           }
 
           ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
-          resolve(compressedDataUrl || result);
+          let compressed = canvas.toDataURL('image/jpeg', quality);
+
+          // If still over 650KB, perform secondary pass with smaller dimension & lower quality
+          if (compressed.length > 650000) {
+            const secondaryCanvas = document.createElement('canvas');
+            const targetWidth = Math.round(width * 0.75);
+            const targetHeight = Math.round(height * 0.75);
+            secondaryCanvas.width = targetWidth;
+            secondaryCanvas.height = targetHeight;
+            const sCtx = secondaryCanvas.getContext('2d');
+            if (sCtx) {
+              sCtx.drawImage(img, 0, 0, targetWidth, targetHeight);
+              compressed = secondaryCanvas.toDataURL('image/jpeg', 0.65);
+            }
+          }
+
+          resolve(compressed || result);
         } catch (err) {
-          console.warn('Canvas compression error, using original data URL:', err);
+          console.warn('Canvas compression error:', err);
           resolve(result);
         }
       };

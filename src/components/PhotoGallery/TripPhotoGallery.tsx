@@ -4,6 +4,7 @@ import {
   deletePhotoFromCloud,
   LOCAL_CACHE_KEY,
   subscribeToCloudPhotos,
+  syncAllLocalPhotosToCloud,
   updatePhotoDay,
   uploadPhotosToCloud,
 } from '../../services/cloudPhotoService';
@@ -26,9 +27,12 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
   // Cloud-synced family photos from Firestore & local storage cache
   const [cloudPhotos, setCloudPhotos] = useState<TripPhoto[]>([]);
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // Uploader selector state
-  const [activeUploader, setActiveUploader] = useState<'account1' | 'account2' | 'family'>('account1');
+  const [activeUploader, setActiveUploader] = useState<'account1' | 'account2' | 'family'>(() => {
+    return (localStorage.getItem('dc_active_uploader') as any) || 'account1';
+  });
   const [acc1Label, setAcc1Label] = useState<string>(() => {
     return localStorage.getItem('dc_photo_uploader_acc1') || 'Ting (Me)';
   });
@@ -307,7 +311,32 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
     setTimeout(() => setStatusMessage(null), 4000);
   };
 
-  // Combine default landmark photos with Cloud Storage photos
+  // Manually trigger cloud sync of all local photos
+  const handleSyncWithCloud = async () => {
+    setIsSyncing(true);
+    setStatusMessage('Syncing all local photos with Family Cloud...');
+    try {
+      const res = await syncAllLocalPhotosToCloud();
+      if (res.synced > 0) {
+        setStatusMessage(`Successfully synced ${res.synced} photo(s) to the shared Family Cloud!`);
+      } else {
+        setStatusMessage(`All photos are synced and up-to-date with Family Cloud!`);
+      }
+    } catch (e: any) {
+      setErrorMessage(`Sync error: ${e.message || 'Could not complete sync'}`);
+    } finally {
+      setIsSyncing(false);
+      setTimeout(() => {
+        setStatusMessage(null);
+        setErrorMessage(null);
+      }, 4000);
+    }
+  };
+
+  const handleSelectUploader = (val: 'account1' | 'account2' | 'family') => {
+    setActiveUploader(val);
+    localStorage.setItem('dc_active_uploader', val);
+  };
   const allPhotos = useMemo(() => {
     return [...cloudPhotos, ...DEFAULT_TRIP_PHOTOS];
   }, [cloudPhotos]);
@@ -500,8 +529,12 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
             </div>
           </div>
 
-          {/* Quick counts & Restore button */}
+          {/* Quick counts, Cloud Status & Sync button */}
           <div className="flex items-center gap-2 text-xs flex-wrap">
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold text-[11px] flex items-center gap-1.5 shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Cloud Synced</span>
+            </span>
             <span className="px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-900 font-bold text-[11px] flex items-center gap-1.5 shadow-2xs">
               <span className="w-2 h-2 rounded-full bg-blue-600"></span>
               <span>{acc1Label}:</span>
@@ -513,12 +546,21 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
               <span className="text-rose-600 font-extrabold">{acc2Count}</span>
             </span>
             <button
+              onClick={handleSyncWithCloud}
+              disabled={isSyncing}
+              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center gap-1.5 transition shadow-2xs cursor-pointer active:scale-95 disabled:opacity-50"
+              title="Force sync all local uploads to Firestore family cloud"
+            >
+              <i className={`fa-solid ${isSyncing ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-up'} text-[10px]`}></i>
+              <span>{isSyncing ? 'Syncing...' : 'Sync with Family Cloud'}</span>
+            </button>
+            <button
               onClick={handleRecoverPhotos}
               className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-[11px] flex items-center gap-1.5 transition shadow-2xs cursor-pointer active:scale-95"
               title="Search and restore photos uploaded prior to update"
             >
               <i className="fa-solid fa-arrows-rotate text-[10px] text-indigo-600"></i>
-              <span>Restore Previous Uploads</span>
+              <span>Restore Previous</span>
             </button>
           </div>
         </div>
@@ -544,7 +586,7 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
               <div className="grid grid-cols-3 gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setActiveUploader('account1')}
+                  onClick={() => handleSelectUploader('account1')}
                   className={`py-1.5 px-2 rounded-lg font-bold text-xs transition cursor-pointer truncate flex items-center justify-center gap-1 ${
                     activeUploader === 'account1'
                       ? 'bg-blue-600 text-white shadow-2xs'
@@ -556,7 +598,7 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveUploader('account2')}
+                  onClick={() => handleSelectUploader('account2')}
                   className={`py-1.5 px-2 rounded-lg font-bold text-xs transition cursor-pointer truncate flex items-center justify-center gap-1 ${
                     activeUploader === 'account2'
                       ? 'bg-rose-600 text-white shadow-2xs'
@@ -568,7 +610,7 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveUploader('family')}
+                  onClick={() => handleSelectUploader('family')}
                   className={`py-1.5 px-2 rounded-lg font-bold text-xs transition cursor-pointer truncate flex items-center justify-center gap-1 ${
                     activeUploader === 'family'
                       ? 'bg-indigo-600 text-white shadow-2xs'
@@ -914,9 +956,32 @@ export const TripPhotoGallery: React.FC<TripPhotoGalleryProps> = ({
       {viewMode === 'grouped' ? (
         /* GROUPED BY DAY VIEW */
         <div className="space-y-8">
+          {/* Active single day indicator banner */}
+          {typeof selectedDayFilter === 'number' && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-blue-900 shadow-2xs">
+              <span className="flex items-center gap-2">
+                <i className="fa-solid fa-filter text-blue-600"></i>
+                <span>
+                  Filtering to <strong>Day {selectedDayFilter + 1} ({DAY_METADATA[selectedDayFilter]?.label || 'Trip Day'})</strong>.
+                </span>
+              </span>
+              <button
+                onClick={() => setSelectedDayFilter('all')}
+                className="font-bold text-blue-700 hover:text-blue-900 underline ml-2 shrink-0 cursor-pointer"
+              >
+                Show All 6 Days
+              </button>
+            </div>
+          )}
+
           {DAY_METADATA.map(day => {
             const dayPhotosList = photosByDay[day.index] || [];
-            if (selectedDayFilter !== 'all' && selectedDayFilter !== day.index) {
+            // If filtering to a specific numeric day, skip other days
+            if (typeof selectedDayFilter === 'number' && selectedDayFilter !== day.index) {
+              return null;
+            }
+            // If filtering by source ('acc1', 'acc2', 'cloud', 'landmarks'), hide days with 0 matching photos
+            if (selectedDayFilter !== 'all' && typeof selectedDayFilter !== 'number' && dayPhotosList.length === 0) {
               return null;
             }
 

@@ -98,11 +98,11 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
         )}
 
         {/* TOP BAR: Prominent Exit buttons and clear photo counter */}
-        <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-950/80 border-b border-slate-800 text-white gap-2">
+        <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-950 border-b border-slate-800 text-white gap-2">
           {/* Mobile-Friendly Back / Exit Button on Left */}
           <button
             onClick={onClose}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs sm:text-sm transition cursor-pointer shadow-xs active:scale-95 border border-slate-700 shrink-0"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs sm:text-sm transition cursor-pointer shadow-sm active:scale-95 border border-slate-700 shrink-0 min-h-[40px]"
             title="Exit photo viewer"
           >
             <i className="fa-solid fa-arrow-left text-xs"></i>
@@ -133,15 +133,15 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
             )}
           </div>
 
-          {/* Actions on Right: Export & Clear Distinct Close Button */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          {/* Actions on Right: Export, Save & Clear Distinct Close Button */}
+          <div className="flex items-center gap-2 shrink-0">
             {onOpenExport && (
               <button
                 onClick={() => {
                   onClose();
                   onOpenExport();
                 }}
-                className="text-xs bg-indigo-600/80 hover:bg-indigo-600 text-white font-semibold px-2.5 py-1.5 rounded-xl items-center gap-1.5 transition active:scale-95 hidden md:flex"
+                className="text-xs bg-indigo-600/80 hover:bg-indigo-600 text-white font-semibold px-2.5 py-2 rounded-xl items-center gap-1.5 transition active:scale-95 hidden md:flex min-h-[40px]"
                 title="Create Google Shared Album or download archive"
               >
                 <i className="fa-solid fa-share-nodes text-[11px]"></i>
@@ -154,7 +154,7 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
               target="_blank"
               rel="noopener noreferrer"
               download={`${photo.title.replace(/\s+/g, '_')}.jpg`}
-              className="text-slate-300 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition"
+              className="text-slate-300 hover:text-white px-2.5 py-2 rounded-xl hover:bg-slate-800 transition min-h-[40px] flex items-center justify-center"
               title="Open full size / Save"
             >
               <i className="fa-solid fa-arrow-up-right-from-square text-xs sm:text-sm"></i>
@@ -163,12 +163,12 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
             {/* Clear, unmistakable CLOSE button */}
             <button
               onClick={onClose}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs sm:text-sm transition cursor-pointer border border-white/20 shadow-xs active:scale-95"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs sm:text-sm transition cursor-pointer border border-white/20 shadow-sm active:scale-95 min-h-[40px]"
               title="Close viewer (Esc)"
               aria-label="Close photo viewer"
             >
               <i className="fa-solid fa-xmark text-sm"></i>
-              <span className="hidden xs:inline">Close</span>
+              <span>Close</span>
             </button>
           </div>
         </div>
@@ -283,31 +283,37 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
 
           {/* DEDICATED ISOLATED DELETE ACTION (Completely separated from close controls) */}
           {photo.uploadedByUser && onDelete && (
-            <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between">
-              <span className="text-[11px] text-slate-500">
-                Uploaded by {photo.accountOwnerName || 'Family'}
-              </span>
+            <div className="mt-4 pt-3 border-t border-slate-800/80 bg-rose-950/20 border border-rose-900/30 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                  <i className="fa-solid fa-shield text-[10px]"></i>
+                  <span>Cloud Photo Management</span>
+                </span>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Uploaded by {photo.accountOwnerName || 'Family'} · Deletion removes from all family devices.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(true)}
-                className="text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 px-3 py-1.5 rounded-lg border border-rose-900/50 transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
-                title="Delete this photo from family cloud"
+                className="text-xs text-rose-300 hover:text-white bg-rose-900/40 hover:bg-rose-800 px-3 py-2 rounded-lg border border-rose-700/50 transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95 shrink-0"
+                title="Permanently remove from family cloud"
               >
                 <i className="fa-regular fa-trash-can text-xs"></i>
-                <span>Delete Photo</span>
+                <span>Delete from Cloud...</span>
               </button>
             </div>
           )}
         </div>
 
         {/* MOBILE STICKY BOTTOM EXIT BAR: One-thumb tap to exit back to photos */}
-        <div className="p-2.5 bg-slate-950 border-t border-slate-800 sm:hidden">
+        <div className="p-3 bg-slate-950 border-t border-slate-800 sm:hidden">
           <button
             onClick={onClose}
-            className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 border border-slate-700 shadow-sm active:scale-98 cursor-pointer"
+            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-md active:scale-98 cursor-pointer min-h-[46px]"
           >
-            <i className="fa-solid fa-arrow-left text-xs text-slate-400"></i>
-            <span>Back to Photos</span>
+            <i className="fa-solid fa-arrow-left text-xs"></i>
+            <span>Done / Exit Photo View</span>
           </button>
         </div>
       </div>
